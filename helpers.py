@@ -1,41 +1,44 @@
 import functools
-import os
 import time
-from typing import Callable, Any
+import collections
 
-def retry_operation(attempts: int = 3, delay: float = 0.5):
-    def decorator(func: Callable):
+def memoize_with_ttl(ttl_seconds=60):
+    def decorator(func):
+        cache = {}
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            last_ex = None
-            for i in range(attempts):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_ex = e
-                    time.sleep(delay * (2 ** i))
-            raise last_ex
+            key = (args, frozenset(kwargs.items()))
+            now = time.time()
+            if key in cache:
+                result, timestamp = cache[key]
+                if now - timestamp < ttl_seconds:
+                    return result
+            result = func(*args, **kwargs)
+            cache[key] = (result, now)
+            return result
         return wrapper
     return decorator
 
-def get_env_var(key: str, default: Any = None) -> str:
-    val = os.environ.get(key, default)
-    return str(val) if val is not None else ""
+class BatchProcessor:
+    def __init__(self, size=100):
+        self.size = size
+        self.buffer = collections.deque()
 
-def flatten_list(nested: list) -> list:
-    result = []
-    for item in nested:
-        if isinstance(item, list):
-            result.extend(flatten_list(item))
-        else:
-            result.append(item)
-    return result
+    def process_stream(self, data_gen, handler):
+        for item in data_gen:
+            self.buffer.append(item)
+            if len(self.buffer) >= self.size:
+                self._flush(handler)
+        self._flush(handler)
 
-def smart_truncate(text: str, limit: int = 50) -> str:
-    return (text[:limit] + '..') if len(text) > limit else text
+    def _flush(self, handler):
+        if self.buffer:
+            batch = list(self.buffer)
+            self.buffer.clear()
+            handler(batch)
 
-def silent_execute(func: Callable, *args, **kwargs):
-    try:
-        return func(*args, **kwargs)
-    except Exception:
-        return None
+@memoize_with_ttl(ttl_seconds=300)
+def fetch_heavy_config(config_id):
+    # Simulate expensive IO
+    time.sleep(0.5)
+    return {"id": config_id, "status": "optimized"}
