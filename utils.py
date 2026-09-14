@@ -1,62 +1,38 @@
-from typing import Any, Union
+import time
+import functools
+import logging
 
-class PathNavigator:
-    """A creative utility to navigate nested data structures using division '/' operator."""
-    def __init__(self, data: Any):
-        self.data = data
+logger = logging.getLogger(__name__)
 
-    def __truediv__(self, key: Union[str, int]) -> "PathNavigator":
-        """Navigate into the nested structure. Supports wildcard expansion for lists."""
-        if self.data is None:
-            return PathNavigator(None)
-
-        if key == "*":
-            if isinstance(self.data, list):
-                return PathNavigator(self.data)
-            if isinstance(self.data, dict):
-                return PathNavigator(list(self.data.values()))
-            return PathNavigator([])
-
-        if isinstance(self.data, list):
-            if isinstance(key, int):
+def retry_operation(max_attempts=3, delay=1.0, backoff=2.0, exceptions=(Exception,)):
+    """Decorator implementing exponential backoff for flaky operations."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            current_delay = delay
+            while attempts < max_attempts:
                 try:
-                    return PathNavigator(self.data[key])
-                except IndexError:
-                    return PathNavigator(None)
-            if str(key).isdigit():
-                try:
-                    return PathNavigator(self.data[int(key)])
-                except IndexError:
-                    return PathNavigator(None)
-            
-            extracted = []
-            for item in self.data:
-                nav = PathNavigator(item) / key
-                if nav.data is not None:
-                    if isinstance(nav.data, list):
-                        extracted.extend(nav.data)
-                    else:
-                        extracted.append(nav.data)
-            return PathNavigator(extracted if extracted else None)
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    attempts += 1
+                    if attempts == max_attempts:
+                        logger.error(f"Final attempt {attempts} failed: {e}")
+                        raise
+                    logger.warning(f"Attempt {attempts} failed. Retrying in {current_delay}s...")
+                    time.sleep(current_delay)
+                    current_delay *= backoff
+        return wrapper
+    return decorator
 
-        if isinstance(self.data, dict):
-            return PathNavigator(self.data.get(key))
+class NetworkSession:
+    def __init__(self):
+        self.connected = False
 
-        return PathNavigator(None)
-
-    def resolve(self, default: Any = None) -> Any:
-        """Retrieve the wrapped structure, falling back to default."""
-        return self.data if self.data is not None else default
-
-    def __repr__(self) -> str:
-        return f"PathNavigator({repr(self.data)})"
-
-
-def dig(data: Any, path: str, default: Any = None) -> Any:
-    """Extract data nested deep using dot or slash notation strings."""
-    delim = "/" if "/" in path else "."
-    steps = [int(x) if x.isdigit() else x for x in path.split(delim)]
-    node = PathNavigator(data)
-    for step in steps:
-        node = node / step
-    return node.resolve(default)
+    @retry_operation(max_attempts=3, delay=0.5)
+    def request(self, endpoint):
+        """Simulated volatile network request."""
+        if not self.connected:
+            self.connected = True
+            raise ConnectionError("Initial connection drop")
+        return {"status": 200, "data": f"success from {endpoint}"}
