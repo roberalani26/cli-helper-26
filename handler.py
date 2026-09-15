@@ -1,38 +1,37 @@
+import sys
 import functools
-import time
+from typing import Callable, Any
 
-class PerformanceHandler:
-    """Advanced request memoization with TTL and frequency throttling."""
-    def __init__(self, cache_size=128, ttl=60):
-        self.cache = {}
-        self.cache_size = cache_size
-        self.ttl = ttl
+class CLIErrorHandler:
+    def __init__(self, logger: Any = None):
+        self.logger = logger
 
-    def __call__(self, func):
+    def __call__(self, func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            key = (func.__name__, args, frozenset(kwargs.items()))
-            now = time.time()
-            
-            if key in self.cache:
-                result, timestamp = self.cache[key]
-                if now - timestamp < self.ttl:
-                    return result
-            
-            if len(self.cache) >= self.cache_size:
-                oldest = min(self.cache, key=lambda k: self.cache[k][1])
-                del self.cache[oldest]
-                
-            result = func(*args, **kwargs)
-            self.cache[key] = (result, now)
-            return result
+            try:
+                return func(*args, **kwargs)
+            except KeyboardInterrupt:
+                sys.stderr.write('\n[!] operation aborted by user\n')
+                sys.exit(130)
+            except PermissionError as e:
+                self._log_and_exit(f'system permission denied: {e}', 126)
+            except FileNotFoundError as e:
+                self._log_and_exit(f'resource not found: {e}', 127)
+            except Exception as e:
+                self._log_and_exit(f'unexpected chaos: {type(e).__name__} - {e}', 1)
         return wrapper
 
-@PerformanceHandler(cache_size=256, ttl=300)
-def process_heavy_payload(data):
-    # Simulate intensive transformation
-    return [item[::-1] for item in sorted(data)]
+    def _log_and_exit(self, message: str, code: int):
+        if self.logger:
+            self.logger.error(message)
+        sys.stderr.write(f'[-] {message}\n')
+        sys.exit(code)
 
-if __name__ == "__main__":
-    data_input = ["apple", "banana", "cherry"]
-    print(process_heavy_payload(data_input))
+def safe_execute(func):
+    return CLIErrorHandler()(func)
+
+if __name__ == '__main__':
+    @safe_execute
+    def risky_business():
+        raise ValueError('something went sideways')
