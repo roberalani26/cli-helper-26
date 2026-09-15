@@ -1,44 +1,30 @@
-import functools
 import time
-import collections
+import functools
+import random
 
-def memoize_with_ttl(ttl_seconds=60):
+def retry_network_op(max_attempts=3, backoff_factor=0.5, exceptions=(ConnectionError, TimeoutError)):
+    """decorator for exponential backoff retries"""
     def decorator(func):
-        cache = {}
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            key = (args, frozenset(kwargs.items()))
-            now = time.time()
-            if key in cache:
-                result, timestamp = cache[key]
-                if now - timestamp < ttl_seconds:
-                    return result
-            result = func(*args, **kwargs)
-            cache[key] = (result, now)
-            return result
+            attempt = 0
+            while attempt < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    attempt += 1
+                    if attempt == max_attempts:
+                        raise e
+                    sleep_time = backoff_factor * (2 ** (attempt - 1)) + random.uniform(0, 0.1)
+                    time.sleep(sleep_time)
         return wrapper
     return decorator
 
-class BatchProcessor:
-    def __init__(self, size=100):
-        self.size = size
-        self.buffer = collections.deque()
-
-    def process_stream(self, data_gen, handler):
-        for item in data_gen:
-            self.buffer.append(item)
-            if len(self.buffer) >= self.size:
-                self._flush(handler)
-        self._flush(handler)
-
-    def _flush(self, handler):
-        if self.buffer:
-            batch = list(self.buffer)
-            self.buffer.clear()
-            handler(batch)
-
-@memoize_with_ttl(ttl_seconds=300)
-def fetch_heavy_config(config_id):
-    # Simulate expensive IO
-    time.sleep(0.5)
-    return {"id": config_id, "status": "optimized"}
+def execute_with_jitter(func, *args, **kwargs):
+    """procedural execution with randomized delay strategy"""
+    for i in range(5):
+        try:
+            return func(*args, **kwargs)
+        except Exception:
+            if i == 4: raise
+            time.sleep(random.uniform(1, 3))
