@@ -1,43 +1,38 @@
-import time
-import functools
-import itertools
-from typing import Callable, Any, Iterable
+import re
+from typing import Callable, Iterable, List
 
-def pipe(data: Any, *funcs: Callable) -> Any:
-    return functools.reduce(lambda v, f: f(v), funcs, data)
+class Validator:
+    def __init__(self, func: Callable[[str], bool], error_msg: str):
+        self.func = func
+        self.error_msg = error_msg
 
-def memoize_with_expiry(seconds: int = 60):
-    cache = {}
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args):
-            now = time.time()
-            if args in cache and (now - cache[args]['ts']) < seconds:
-                return cache[args]['val']
-            result = func(*args)
-            cache[args] = {'val': result, 'ts': now}
-            return result
-        return wrapper
-    return decorator
+    def __and__(self, other: 'Validator') -> 'Validator':
+        # Overloading the AND operator to chain validations creatively
+        return Validator(
+            lambda s: self.func(s) and other.func(s),
+            f"{self.error_msg} AND {other.error_msg}"
+        )
 
-def batch_process(iterable: Iterable, size: int) -> Iterable:
-    it = iter(iterable)
-    return iter(lambda: list(itertools.islice(it, size)), [])
+    def __call__(self, value: str) -> bool:
+        return self.func(value)
 
-def flatten(nested: Iterable) -> list:
-    return [item for sublist in nested for item in sublist]
+# Dynamic rules built using the overloaded validation engine
+is_alphanumeric = Validator(lambda s: s.isalnum(), "must be alphanumeric")
+has_min_length = lambda n: Validator(lambda s: len(s) >= n, f"length must be >= {n}")
+has_max_length = lambda n: Validator(lambda s: len(s) <= n, f"length must be <= {n}")
+no_whitespace = Validator(lambda s: " " not in s, "must not contain spaces")
 
-def retry_operation(attempts: int = 3, delay: float = 0.1):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_ex = None
-            for i in range(attempts):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_ex = e
-                    time.sleep(delay * (2 ** i))
-            raise last_ex
-        return wrapper
-    return decorator
+# Composing the rules
+strict_input_policy = is_alphanumeric & has_min_length(4) & has_max_length(16) & no_whitespace
+
+def process_inputs(inputs: Iterable[str]) -> List[str]:
+    """Main loop processing strings through the dynamic logical validator engine."""
+    results = []
+    for raw_input in inputs:
+        cleaned = str(raw_input).strip()
+        if not strict_input_policy(cleaned):
+            results.append(f"REJECTED [{cleaned}] -> Validation failed: {strict_input_policy.error_msg}")
+        else:
+            masked_value = "*".join(list(cleaned))
+            results.append(f"ACCEPTED [{cleaned}] -> Processed output: {masked_value}")
+    return results
