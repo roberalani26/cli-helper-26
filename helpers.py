@@ -1,51 +1,60 @@
-import itertools
-import shutil
 import sys
-import time
-from contextlib import contextmanager
+import logging
+import datetime
+from pathlib import Path
+from logging.handlers import RotatingFileHandler
 
+class RotatingANSIFormatter(logging.Formatter):
+    COLORS = {
+        logging.DEBUG: "\033[36m",
+        logging.INFO: "\033[32m",
+        logging.WARNING: "\033[33m",
+        logging.ERROR: "\033[31m",
+        logging.CRITICAL: "\033[41m"
+    }
+    RESET = "\033[0m"
 
-def rainbow_text(text: str) -> str:
-    """Wraps text in a colorful ANSI rainbow pattern."""
-    colors = [f"\x1b[3{i}m" for i in range(1, 7)]
-    reset = "\x1b[0m"
-    return "".join(
-        f"{colors[i % len(colors)]}{char}" for i, char in enumerate(text)
-    ) + reset
+    def __init__(self, use_color: bool = True):
+        super().__init__(fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+        self.use_color = use_color
 
+    def format(self, record: logging.LogRecord) -> str:
+        formatted = super().format(record)
+        if self.use_color and record.levelno in self.COLORS:
+            color = self.COLORS[record.levelno]
+            return f"{color}{formatted}{self.RESET}"
+        return formatted
 
-def truncate_middle(text: str, max_len: int = 30, placeholder: str = "...") -> str:
-    """Truncates text by keeping start and end, replacing middle with placeholder."""
-    if len(text) <= max_len:
-        return text
-    half = (max_len - len(placeholder)) // 2
-    return text[:half] + placeholder + text[-half:]
+class MetaHeaderRotatingHandler(RotatingFileHandler):
+    def doRollover(self):
+        super().doRollover()
+        timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        if self.stream:
+            self.stream.write(f"--- LOG SESSION ROTATED AT {timestamp} ---\n")
+            self.stream.flush()
 
+def setup_logger(
+    name: str = "cli_app",
+    log_file: str = "app.log",
+    max_bytes: int = 1_048_576,
+    backup_count: int = 5,
+    level: int = logging.INFO
+) -> logging.Logger:
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    logger.handlers.clear()
 
-@contextmanager
-def execution_spinner(message: str = "Processing"):
-    """A terminal spinner context manager that cleans up after itself."""
-    spinner_chars = ["\u280b", "\u2819", "\u2839", "\u2838", "\u28bc", "\u28b4", "\u28a6", "\u28a7", "\u2807", "\u280f"]
-    spinner_cycle = itertools.cycle(spinner_chars)
-    stop_spinner = [False]
-    import threading
+    file_path = Path(log_file)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def spin():
-        while not stop_spinner[0]:
-            cols, _ = shutil.get_terminal_size()
-            frame = next(spinner_cycle)
-            msg = f"\r{frame} {message}"[:cols]
-            sys.stdout.write(msg)
-            sys.stdout.flush()
-            time.sleep(0.08)
+    file_handler = MetaHeaderRotatingHandler(
+        file_path, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
+    )
+    file_handler.setFormatter(RotatingANSIFormatter(use_color=False))
+    logger.addHandler(file_handler)
 
-    thread = threading.Thread(target=spin, daemon=True)
-    thread.start()
-    try:
-        yield
-    finally:
-        stop_spinner[0] = True
-        thread.join(timeout=0.5)
-        cols, _ = shutil.get_terminal_size()
-        sys.stdout.write("\r" + " " * (cols - 1) + "\r")
-        sys.stdout.flush()
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(RotatingANSIFormatter(use_color=True))
+    logger.addHandler(console_handler)
+
+    return logger
