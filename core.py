@@ -1,43 +1,34 @@
-import functools
-from typing import Any, Callable, Dict, List, Union
+import os
+from pathlib import Path
+from typing import Any, Dict
 
-class DataFlux:
-    """A magical wrapper for dictionary transformation gymnastics."""
-    def __init__(self, data: Dict[Any, Any]):
-        self._data = data
+class CliCore:
+    def __init__(self, workspace: str = "."):
+        self.root = Path(workspace).resolve()
+        self.registry: Dict[str, Any] = {}
 
-    def morph(self, keys: List[str], func: Callable[[Any], Any]) -> 'DataFlux':
-        for key in keys:
-            if key in self._data:
-                self._data[key] = func(self._data[key])
-        return self)
+    def __call__(self, key: str, func: callable) -> None:
+        self.registry[key] = func
 
-    def extract(self, path: str, default: Any = None) -> Any:
-        return functools.reduce(
-            lambda d, k: d.get(k, {}) if isinstance(d, dict) else default,
-            path.split('.'),
-            self._data
-        )
+    def dispatch(self, cmd: str, *args, **kwargs) -> Any:
+        return self.registry.get(cmd, lambda *a, **k: None)(*args, **kwargs)
 
-    @property
-    def raw(self) -> Dict[Any, Any]:
-        return self._data
+    def cleanup(self, pattern: str = "*.tmp"):
+        for path in self.root.rglob(pattern):
+            try:
+                path.unlink()
+            except OSError:
+                pass
 
-def sanitize_input(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Recursively strips whitespace from string values."""
-    def _clean(val: Any) -> Any:
-        if isinstance(val, str):
-            return val.strip()
-        if isinstance(val, dict):
-            return {k: _clean(v) for k, v in val.items()}
-        if isinstance(val, list):
-            return [_clean(i) for i in val]
-        return val
-    return _clean(data)
+    def reorganize(self, structure: Dict[str, str]):
+        for src, dest in structure.items():
+            src_path = self.root / src
+            if src_path.exists():
+                dest_path = self.root / dest
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                src_path.rename(dest_path)
 
-def smart_cast(value: Any, target_type: type) -> Any:
-    """Aggressive type conversion attempt with safe fallback."""
-    try:
-        return target_type(value)
-    except (ValueError, TypeError):
-        return None
+if __name__ == "__main__":
+    cli = CliCore()
+    cli.cleanup()
+    print("system state optimized")
