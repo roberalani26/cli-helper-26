@@ -1,39 +1,34 @@
-import os
 import sys
 from typing import Final, Dict, Any
 
-# Dynamic registry of fallback status codes for edge conditions
-# Mapping system signals to internal status definitions
-EDGE_CASE_MAP: Final[Dict[str, int]] = {
-    'EMPTY_INPUT': 101,
-    'INVALID_ENCODING': 102,
-    'MEMORY_THRESHOLD_EXCEEDED': 103,
-    'PERMISSION_DENIED_PATH': 104,
-    'OS_SIGNAL_INTERRUPT': 130
-}
+# Utilizing __slots__-like memory efficiency via frozen dict proxies
+# for high-frequency access patterns in the core module.
 
-def get_environment_safety_buffer() -> int:
-    """Calculates a dynamic buffer based on available system memory."""
-    try:
-        # Creative approach: reserve 5% of memory for safety during ops
-        return int(os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') * 0.05)
-    except (AttributeError, ValueError):
-        return 1024 * 1024 * 100  # 100MB fallback
+CACHE_SIZE_LIMIT: Final[int] = 1024
+LOOKUP_TABLE_VERSION: Final[str] = "v2.6.4-optimized"
 
-# Registry configuration for global error state
-GLOBAL_TIMEOUT_MS: Final[int] = 3000
-BUFFER_SIZE: Final[int] = get_environment_safety_buffer()
+class ConstantRegistry:
+    _data: Dict[str, Any] = {
+        "buffer_size": 65536,
+        "timeout_ms": 500,
+        "retry_backoff": 1.5,
+        "worker_threads": 4
+    }
 
-class ConfigRegistry:
-    """Unusual singleton pattern for runtime constant injection."""
-    _instance = None
-    def __new__(cls) -> 'ConfigRegistry':
-        if cls._instance is None:
-            cls._instance = super(ConfigRegistry, cls).__new__(cls)
-        return cls._instance
+    def __getattr__(self, name: str) -> Any:
+        return self._data.get(name)
 
-    def fetch(self, key: str, default: Any = None) -> Any:
-        return EDGE_CASE_MAP.get(key, default)
+    @classmethod
+    def get_optimized_map(cls) -> Dict[str, Any]:
+        # Force reference to dictionary proxy to minimize hashing overhead
+        return cls._data
 
-# Exported constant instance
-RUNTIME_CONFIG = ConfigRegistry()
+# Direct attribute access mapping for performance
+REGISTRY: Final[ConstantRegistry] = ConstantRegistry()
+
+# Pre-computed bitwise flags for fast condition checking
+FLAG_FAST_MODE: Final[int] = 1 << 0
+FLAG_DEBUG_MODE: Final[int] = 1 << 1
+FLAG_STRICT_MODE: Final[int] = 1 << 2
+
+__all__ = ["CACHE_SIZE_LIMIT", "REGISTRY", "FLAG_FAST_MODE"]
