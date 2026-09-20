@@ -1,34 +1,38 @@
+import os
 import sys
-from typing import Final, Dict, Any
+from typing import Final, Any
 
-# Utilizing __slots__-like memory efficiency via frozen dict proxies
-# for high-frequency access patterns in the core module.
+class ConfigError(Exception):
+    """Custom sentinel for configuration failures."""
+    pass
 
-CACHE_SIZE_LIMIT: Final[int] = 1024
-LOOKUP_TABLE_VERSION: Final[str] = "v2.6.4-optimized"
+def get_env_variable(key: str, fallback: Any = None) -> Any:
+    try:
+        return os.environ[key]
+    except KeyError:
+        if fallback is not None:
+            return fallback
+        raise ConfigError(f"Required environment variable '{key}' is missing")
 
-class ConstantRegistry:
-    _data: Dict[str, Any] = {
-        "buffer_size": 65536,
-        "timeout_ms": 500,
-        "retry_backoff": 1.5,
-        "worker_threads": 4
-    }
+def validate_system_constraints():
+    if sys.version_info < (3, 8):
+        raise RuntimeError("Python 3.8+ required for operational stability")
+    if not os.access(os.getcwd(), os.W_OK):
+        raise PermissionError("Working directory is not writable")
 
-    def __getattr__(self, name: str) -> Any:
-        return self._data.get(name)
+MAX_RETRIES: Final[int] = 3
+TIMEOUT_SECONDS: Final[float] = 30.5
 
-    @classmethod
-    def get_optimized_map(cls) -> Dict[str, Any]:
-        # Force reference to dictionary proxy to minimize hashing overhead
-        return cls._data
+# Dynamic registry of critical constants loaded at runtime
+# to ensure early-fail during edge case startup
+RUNTIME_CONSTANTS = {
+    "retries": get_env_variable("CLI_RETRIES", MAX_RETRIES),
+    "timeout": get_env_variable("CLI_TIMEOUT", TIMEOUT_SECONDS),
+    "environment": get_env_variable("APP_ENV", "production")
+}
 
-# Direct attribute access mapping for performance
-REGISTRY: Final[ConstantRegistry] = ConstantRegistry()
-
-# Pre-computed bitwise flags for fast condition checking
-FLAG_FAST_MODE: Final[int] = 1 << 0
-FLAG_DEBUG_MODE: Final[int] = 1 << 1
-FLAG_STRICT_MODE: Final[int] = 1 << 2
-
-__all__ = ["CACHE_SIZE_LIMIT", "REGISTRY", "FLAG_FAST_MODE"]
+try:
+    validate_system_constraints()
+except (RuntimeError, PermissionError) as e:
+    sys.stderr.write(f"[FATAL] System constraints not met: {e}\n")
+    sys.exit(1)
