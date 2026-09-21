@@ -1,63 +1,68 @@
+from typing import Callable, Any, Tuple, Optional
 import re
-from typing import Any, Callable, Dict, Tuple, Union
 
-class Rule:
-    def __init__(self, predicate: Callable[[Any], bool], error_message: str):
-        self.predicate = predicate
-        self.error_message = error_message
 
-    def __and__(self, other: 'Rule') -> 'Rule':
-        return Rule(
-            lambda x: self.predicate(x) and other.predicate(x),
-            f"{self.error_message} AND {other.error_message}"
-        )
+class ValidationResult:
+    __slots__ = ("is_valid", "error")
 
-def is_safe_shell_input(text: str) -> bool:
-    # Prevent basic shell injections in commands
-    return not any(char in text for char in [';', '&&', '||', '`', '$'])
+    def __init__(self, is_valid: bool, error: Optional[str] = None):
+        self.is_valid = is_valid
+        self.error = error
 
-class InputValidator:
-    def __init__(self):
-        self.rules: Dict[str, Rule] = {
-            "non_empty": Rule(lambda x: bool(str(x).strip()), "value cannot be empty"),
-            "no_injection": Rule(lambda x: is_safe_shell_input(str(x)), "potential shell injection pattern identified"),
-            "alphanumeric_dashed": Rule(
-                lambda x: bool(re.match(r'^[a-zA-Z0-9_\-]+$', str(x))),
-                "must be strictly alphanumeric, dashes, or underscores"
-            ),
-        }
+    def __bool__(self) -> bool:
+        return self.is_valid
 
-    def validate_argument(self, key: str, value: Any, rule_expression: str) -> Tuple[bool, Union[str, None]]:
-        """
-        Validates a single input value against combined validation rules using '+' concatenation.
-        """
-        combined_rule = None
-        for part in rule_expression.split('+'):
-            rule = self.rules.get(part.strip())
-            if not rule:
-                continue
-            if combined_rule is None:
-                combined_rule = rule
-            else:
-                combined_rule = combined_rule & rule
+    def __repr__(self) -> str:
+        return f"ValidationResult(valid={self.is_valid}, error={self.error!r})"
 
-        if combined_rule is None:
-            return True, None
 
-        try:
-            is_valid = combined_rule.predicate(value)
-            return is_valid, (None if is_valid else f"Validation failed for '{key}': {combined_rule.error_message}")
-        except Exception as e:
-            return False, f"Validation execution error for '{key}': {str(e)}"
+class Validator:
+    def __init__(self, fn: Callable[[Any], Tuple[bool, str]]):
+        self._fn = fn
 
-    def validate_payload(self, payload: Dict[str, Any], schema: Dict[str, str]) -> Dict[str, str]:
-        """
-        Validates processing loop payloads against a custom schematic chain map.
-        """
-        errors = {}
-        for field, rule_chain in schema.items():
-            value = payload.get(field, "")
-            is_valid, error_msg = self.validate_argument(field, value, rule_chain)
-            if not is_valid and error_msg:
-                errors[field] = error_msg
-        return errors
+    def __call__(self, value: Any) -> ValidationResult:
+        valid, err = self._fn(value)
+        return ValidationResult(valid, err if not valid else None)
+
+    def __and__(self, other: "Validator") -> "Validator":
+        def combined(val: Any) -> Tuple[bool, str]:
+            res1 = self(val)
+            if not res1:
+                return False, res1.error or "Primary rule failed"
+            res2 = other(val)
+            if not res2:
+                return False, res2.error or "Secondary rule failed"
+            return True, ""
+        return Validator(combined)
+
+    def __or__(self, other: "Validator") -> "Validator":
+        def combined(val: Any) -> Tuple[bool, str]:
+            res1 = self(val)
+            if res1:
+                return True, ""
+            res2 = other(val)
+            if res2:
+                return True, ""
+            return False, f"Fallback checks failed: ({res1.error} | {res2.error})"
+        return Validator(combined)
+
+
+is_non_empty = Validator(lambda v: (bool(v and str(v).strip()), "Value cannot be empty"))
+is_numeric = Validator(lambda v: (str(v).isdigit(), "Must contain only digits"))
+
+
+def min_length(n: int) -> Validator:
+    return Validator(lambda v: (len(str(v)) >= n, f"Minimum length is {n}"))
+
+
+def regex_match(pattern: str, msg: str = "Invalid format") -> Validator:
+    compiled = re.compile(pattern)
+    return Validator(lambda v: (bool(compiled.search(str(v))), msg))
+
+
+cli_identifier_rules = is_non_empty & min_length(3) & Validator(
+    lambda v: (str(v)[0].isalpha(), "Must start with a letter")
+)
+cli_port_validator = is_numeric & Validator(
+    lambda v: (1 <= int(v) <= 65535, "Port out of range (1-65535)")
+)
