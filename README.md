@@ -1,48 +1,42 @@
 # cli-helper-26
 
-`cli-helper-26` is a lightweight Python utility library designed to streamline the creation of robust command-line interfaces. It abstracts boilerplate logic for argument parsing, configuration management, and colorized output to help developers build professional CLI tools in minutes.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-### Key Features
-* **Intuitive Decorators:** Wrap your functions with `@command` to automatically map arguments and generate help documentation.
-* **Smart Config Management:** Built-in support for loading and saving `.json` or `.yaml` configuration files with validation.
-* **Context Handling:** Integrated session context to share database connections or API clients across subcommands seamlessly.
-* **Formatted Output:** Pre-configured logging helpers for success, warning, and error states using standardized ANSI color codes.
+`cli-helper-26` is a lightweight Python library designed to streamline the creation of interactive command-line interfaces. It simplifies user input validation, terminal formatting, and progress tracking so you can focus on building core application logic.
 
-### Installation
+## Features
 
-Ensure you have Python 3.8+ installed. Install the package directly from PyPI:
+* **Strict Input Validation:** Prompt users for specific data types (emails, paths, numbers) with automatic retry logic and customizable error messages.
+* **Beautiful Terminal Output:** Built-in support for ANSI colors, styled text block banners, and dynamically aligned tables.
+* **Non-blocking Progress Indicators:** Simple-to-use terminal spinners and progress bars that run seamlessly during background tasks.
+
+## Installation
+
+Install the package directly from PyPI using pip:
 
 ```bash
 pip install cli-helper-26
 ```
 
-### Basic Usage
+## Quick Start
 
-Define your CLI tool in a `main.py` file:
+Create interactive prompts and styled outputs in just a few lines of code:
 
 ```python
-from cli_helper import CLI
+import time
+from cli_helper_26 import prompt, Spinner, style
 
-app = CLI(name="my-tool")
+# Get validated input from the user
+age = prompt.integer("Enter your age: ", min_value=18, max_value=99)
 
-@app.command()
-def greet(name: str, verbose: bool = False):
-    """Greets the user."""
-    if verbose:
-        print(f"DEBUG: Initializing greeting sequence for {name}")
-    print(f"Hello, {name}!")
+# Run a task with a visual progress spinner
+with Spinner("Processing registration..."):
+    time.sleep(1.5)
 
-if __name__ == "__main__":
-    app.run()
+# Output styled text
+print(style.success(f"Successfully registered user (Age: {age})!"))
 ```
 
-Run your new tool from the terminal:
+## License
 
-```bash
-python main.py greet --name Alice --verbose
-```
-
-### License
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-This project is licensed under the MIT License. See the `LICENSE` file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
