@@ -1,37 +1,40 @@
-import sys
+import time
 import functools
-from typing import Callable, Any
+from pathlib import Path
+import json
 
-class CLIErrorHandler:
-    def __init__(self, logger: Any = None):
-        self.logger = logger
-
-    def __call__(self, func: Callable) -> Callable:
+def retry_on_failure(max_retries=3, delay=1):
+    def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except KeyboardInterrupt:
-                sys.stderr.write('\n[!] operation aborted by user\n')
-                sys.exit(130)
-            except PermissionError as e:
-                self._log_and_exit(f'system permission denied: {e}', 126)
-            except FileNotFoundError as e:
-                self._log_and_exit(f'resource not found: {e}', 127)
-            except Exception as e:
-                self._log_and_exit(f'unexpected chaos: {type(e).__name__} - {e}', 1)
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception:
+                    if attempt == max_retries - 1: raise
+                    time.sleep(delay)
         return wrapper
+    return decorator
 
-    def _log_and_exit(self, message: str, code: int):
-        if self.logger:
-            self.logger.error(message)
-        sys.stderr.write(f'[-] {message}\n')
-        sys.exit(code)
+class AtomicFileProcessor:
+    def __init__(self, target_path):
+        self.path = Path(target_path)
 
-def safe_execute(func):
-    return CLIErrorHandler()(func)
+    def write_json_safely(self, data):
+        tmp = self.path.with_suffix('.tmp')
+        with open(tmp, 'w') as f:
+            json.dump(data, f, indent=2)
+        tmp.replace(self.path)
 
-if __name__ == '__main__':
-    @safe_execute
-    def risky_business():
-        raise ValueError('something went sideways')
+    @staticmethod
+    def batch_process(items, func, chunk_size=5):
+        return [func(items[i:i + chunk_size]) for i in range(0, len(items), chunk_size)]
+
+def time_execution(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        print(f'{func.__name__} took {time.perf_counter() - start:.4f}s')
+        return result
+    return wrapper
