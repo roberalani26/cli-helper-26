@@ -1,32 +1,32 @@
+import logging
+from logging.handlers import RotatingFileHandler
 import sys
-from typing import Any, Optional, Dict
-from datetime import datetime
 
-class CLIFormatter:
-    """Dynamic console styler for cli-helper-26 internal logs."""
-    def __init__(self, prefix: str = "[DEV-LOG]") -> None:
-        self.prefix: str = prefix
+class LoggerSetup:
+    def __init__(self, name='cli-helper-26', log_file='app.log'):
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(logging.DEBUG)
+        self.formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        self.setup_handlers(log_file)
 
-    def format_entry(self, msg: Any, meta: Optional[Dict[str, Any]] = None) -> str:
-        """Wraps content in timestamped debug structure."""
-        timestamp: str = datetime.now().strftime("%H:%M:%S")
-        context: str = f" | {meta}" if meta else ""
-        return f"{self.prefix} {timestamp} >> {msg}{context}"
+    def setup_handlers(self, log_file):
+        if not self.logger.handlers:
+            file_handler = RotatingFileHandler(
+                log_file, maxBytes=1048576, backupCount=5
+            )
+            file_handler.setFormatter(self.formatter)
+            self.logger.addHandler(file_handler)
 
-class Logger:
-    """Global logger instance with unusual stream redirection."""
-    def __init__(self, stream: Any = sys.stderr) -> None:
-        self._stream: Any = stream
-        self._formatter: CLIFormatter = CLIFormatter()
+            console_handler = logging.StreamHandler(sys.stdout)
+            console_handler.setFormatter(self.formatter)
+            self.logger.addHandler(console_handler)
 
-    def emit(self, message: Any, data: Optional[Dict[str, Any]] = None) -> None:
-        """Direct output to configured stream using formatter."""
-        payload: str = self._formatter.format_entry(message, data)
-        self._stream.write(payload + "\n")
-        self._stream.flush()
+    def get_logger(self):
+        return self.logger
 
-def get_logger() -> Logger:
-    """Lazy getter for the singleton logger instance."""
-    if not hasattr(get_logger, "_instance"):
-        get_logger._instance = Logger()
-    return get_logger._instance
+def get_app_logger():
+    return LoggerSetup().get_logger()
+
+if __name__ == '__main__':
+    log = get_app_logger()
+    log.info('logger initialization successful')
