@@ -1,37 +1,29 @@
 import time
 import functools
-import logging
+import random
 
-logger = logging.getLogger(__name__)
-
-def with_retry(retries=3, delay=1.5, backoff=2):
+def retry_with_backoff(retries=3, backoff_in_seconds=1):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            current_delay = delay
-            for attempt in range(retries):
+            x = 0
+            while x <= retries:
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
-                    if attempt == retries - 1:
-                        logger.error(f"Final attempt failed for {func.__name__}")
+                    if x == retries:
                         raise e
-                    logger.warning(f"Attempt {attempt + 1} failed, retrying in {current_delay}s")
-                    time.sleep(current_delay)
-                    current_delay *= backoff
+                    delay = (backoff_in_seconds * (2 ** x)) + random.uniform(0, 1)
+                    time.sleep(delay)
+                    x += 1
         return wrapper
     return decorator
 
-def pulse_check(endpoint, timeout=5):
-    import requests
-    try:
-        return requests.get(endpoint, timeout=timeout).status_code == 200
-    except Exception:
-        return False
+def request_stub(data):
+    if random.random() < 0.7:
+        raise ConnectionError("transient network glitch")
+    return f"success: {data}"
 
-@with_retry(retries=4, delay=1)
-def secure_fetch(url):
-    import requests
-    response = requests.get(url, timeout=10)
-    response.raise_for_status()
-    return response.content
+if __name__ == '__main__':
+    robust_call = retry_with_backoff()(request_stub)
+    print(robust_call("ping"))
