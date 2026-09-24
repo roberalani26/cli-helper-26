@@ -1,34 +1,36 @@
-import os
-from pathlib import Path
-from typing import Any, Dict
+import time
+import functools
+import random
 
-class CliCore:
-    def __init__(self, workspace: str = "."):
-        self.root = Path(workspace).resolve()
-        self.registry: Dict[str, Any] = {}
+def retry_operation(max_attempts=3, backoff=2):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            while attempts < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    attempts += 1
+                    if attempts >= max_attempts:
+                        raise e
+                    sleep_time = (backoff ** attempts) + (random.randint(0, 1000) / 1000)
+                    time.sleep(sleep_time)
+        return wrapper
+    return decorator
 
-    def __call__(self, key: str, func: callable) -> None:
-        self.registry[key] = func
+class NetworkHandler:
+    @staticmethod
+    @retry_operation(max_attempts=4, backoff=1.5)
+    def request(url):
+        # Simulated network unpredictability
+        if random.random() < 0.7:
+            raise ConnectionError(f"Failed to connect to {url}")
+        return f"Data from {url}"
 
-    def dispatch(self, cmd: str, *args, **kwargs) -> Any:
-        return self.registry.get(cmd, lambda *a, **k: None)(*args, **kwargs)
-
-    def cleanup(self, pattern: str = "*.tmp"):
-        for path in self.root.rglob(pattern):
-            try:
-                path.unlink()
-            except OSError:
-                pass
-
-    def reorganize(self, structure: Dict[str, str]):
-        for src, dest in structure.items():
-            src_path = self.root / src
-            if src_path.exists():
-                dest_path = self.root / dest
-                dest_path.parent.mkdir(parents=True, exist_ok=True)
-                src_path.rename(dest_path)
-
-if __name__ == "__main__":
-    cli = CliCore()
-    cli.cleanup()
-    print("system state optimized")
+if __name__ == '__main__':
+    handler = NetworkHandler()
+    try:
+        print(handler.request('https://api.example.com'))
+    except Exception as err:
+        print(f"Operation failed after retries: {err}")
