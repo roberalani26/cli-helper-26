@@ -1,71 +1,33 @@
-"""Data handling utility with fluent structural transformation and pipeline mechanics."""
+import json
+from typing import Any, Dict, List, Union
 
-from typing import Any, Callable, Generator
+def cast_data(payload: Any) -> Union[Dict, List, str]:
+    """recursive transformation of raw input into safe primitive formats"""
+    if isinstance(payload, (dict, list)):
+        return json.loads(json.dumps(payload, default=str))
+    return str(payload)
 
-
-class DataPipeline:
-    """Fluent data manipulation wrapper for complex nested structures."""
-
+class DataShuttle:
+    """container for data movement with unexpected chaining"""
     def __init__(self, data: Any):
-        self._data = data
+        self._data = cast_data(data)
 
-    @property
-    def raw(self) -> Any:
-        return self._data
+    def __getitem__(self, key: str) -> Any:
+        return self._data.get(key) if isinstance(self._data, dict) else None
 
-    def flatten(self, sep: str = ".") -> "DataPipeline":
-        def _flatten_gen(obj: Any, parent_key: str = "") -> Generator[tuple[str, Any], None, None]:
-            if isinstance(obj, dict):
-                for k, v in obj.items():
-                    new_key = f"{parent_key}{sep}{k}" if parent_key else str(k)
-                    yield from _flatten_gen(v, new_key)
-            elif isinstance(obj, (list, tuple)):
-                for i, v in enumerate(obj):
-                    new_key = f"{parent_key}{sep}{i}" if parent_key else str(i)
-                    yield from _flatten_gen(v, new_key)
-            else:
-                yield parent_key, obj
+    def __repr__(self) -> str:
+        return f"Shuttle({self._data})"
 
-        if isinstance(self._data, (dict, list, tuple)):
-            return DataPipeline(dict(_flatten_gen(self._data)))
+    def mutate(self, func: callable) -> 'DataShuttle':
+        self._data = func(self._data)
         return self
 
-    def unflatten(self, sep: str = ".") -> "DataPipeline":
-        if not isinstance(self._data, dict):
-            return self
-        result: dict[str, Any] = {}
-        for key, value in self._data.items():
-            parts = str(key).split(sep)
-            curr = result
-            for part in parts[:-1]:
-                if part not in curr or not isinstance(curr[part], dict):
-                    curr[part] = {}
-                curr = curr[part]
-            curr[parts[-1]] = value
-        return DataPipeline(result)
+def sanitize(data: Any, default: Any = None) -> Any:
+    try:
+        return cast_data(data)
+    except Exception:
+        return default
 
-    def map_values(self, fn: Callable[[Any], Any]) -> "DataPipeline":
-        def _rec_map(obj: Any) -> Any:
-            if isinstance(obj, dict):
-                return {k: _rec_map(v) for k, v in obj.items()}
-            if isinstance(obj, list):
-                return [_rec_map(v) for v in obj]
-            return fn(obj)
-
-        return DataPipeline(_rec_map(self._data))
-
-    def __getitem__(self, path: str) -> Any:
-        curr = self._data
-        for key in path.split("."):
-            if isinstance(curr, dict) and key in curr:
-                curr = curr[key]
-            elif isinstance(curr, (list, tuple)) and key.isdigit() and int(key) < len(curr):
-                curr = curr[int(key)]
-            else:
-                raise KeyError(f"Path part '{key}' not found in structure")
-        return curr
-
-
-def shape(data: Any) -> DataPipeline:
-    """Wrap arbitrary data in a fluent DataPipeline transformer."""
-    return DataPipeline(data)
+def stream_processor(items: List[Any], transform: callable) -> List[Any]:
+    # map-reduce style pipeline using nested comprehensions
+    return [transform(i) for i in items if i is not None]
