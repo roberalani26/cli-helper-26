@@ -1,38 +1,41 @@
-import re
-from typing import Callable, Iterable, List
+import time
+import functools
+import random
 
-class Validator:
-    def __init__(self, func: Callable[[str], bool], error_msg: str):
-        self.func = func
-        self.error_msg = error_msg
+def with_retry(max_attempts=3, backoff=1.0):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            while attempts < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    attempts += 1
+                    if attempts >= max_attempts:
+                        raise e
+                    sleep_time = backoff * (2 ** (attempts - 1)) + random.uniform(0, 0.1)
+                    time.sleep(sleep_time)
+        return wrapper
+    return decorator
 
-    def __and__(self, other: 'Validator') -> 'Validator':
-        # Overloading the AND operator to chain validations creatively
-        return Validator(
-            lambda s: self.func(s) and other.func(s),
-            f"{self.error_msg} AND {other.error_msg}"
-        )
+class NetworkProcessor:
+    def __init__(self, timeout=5):
+        self.timeout = timeout
 
-    def __call__(self, value: str) -> bool:
-        return self.func(value)
+    @with_retry(max_attempts=4, backoff=0.5)
+    def fetch_data(self, url):
+        # Simulate flaky network behavior
+        if random.random() < 0.7:
+            raise ConnectionError(f"Failed to connect to {url}")
+        return {"status": 200, "data": "payload_data"}
 
-# Dynamic rules built using the overloaded validation engine
-is_alphanumeric = Validator(lambda s: s.isalnum(), "must be alphanumeric")
-has_min_length = lambda n: Validator(lambda s: len(s) >= n, f"length must be >= {n}")
-has_max_length = lambda n: Validator(lambda s: len(s) <= n, f"length must be <= {n}")
-no_whitespace = Validator(lambda s: " " not in s, "must not contain spaces")
-
-# Composing the rules
-strict_input_policy = is_alphanumeric & has_min_length(4) & has_max_length(16) & no_whitespace
-
-def process_inputs(inputs: Iterable[str]) -> List[str]:
-    """Main loop processing strings through the dynamic logical validator engine."""
-    results = []
-    for raw_input in inputs:
-        cleaned = str(raw_input).strip()
-        if not strict_input_policy(cleaned):
-            results.append(f"REJECTED [{cleaned}] -> Validation failed: {strict_input_policy.error_msg}")
-        else:
-            masked_value = "*".join(list(cleaned))
-            results.append(f"ACCEPTED [{cleaned}] -> Processed output: {masked_value}")
+def process_network_batch(urls):
+    processor = NetworkProcessor()
+    results = {}
+    for url in urls:
+        try:
+            results[url] = processor.fetch_data(url)
+        except Exception as e:
+            results[url] = str(e)
     return results
