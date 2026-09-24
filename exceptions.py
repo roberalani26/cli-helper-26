@@ -1,55 +1,29 @@
-import sys
-from typing import Any, Dict, Optional, Type
-
-
-class CLIHelperError(Exception):
-    """Base exception for cli-helper with dynamic exit code mapping."""
-
-    registry: Dict[int, Type["CLIHelperError"]] = {}
-    default_exit_code: int = 1
-
-    def __init_subclass__(cls, exit_code: Optional[int] = None, **kwargs: Any) -> None:
-        super().__init_subclass__(**kwargs)
-        code = exit_code if exit_code is not None else (cls.default_exit_code + len(cls.registry))
-        cls.exit_code = code
-        cls.registry[code] = cls
-
-    def __init__(self, message: str, context: Optional[Dict[str, Any]] = None) -> None:
-        super().__init__(message)
+class ValidationError(Exception):
+    """Custom exception for input validation failures in the main loop."""
+    def __init__(self, message, code):
         self.message = message
-        self.context = context or {}
-        self._tb = sys.exc_info()[2]
+        self.code = code
+        super().__init__(self.message)
 
-    def render(self) -> str:
-        parts = [f"[ERROR {self.exit_code}] {self.message}"]
-        if self.context:
-            ctx_str = ", ".join(f"{k}={v!r}" for k, v in self.context.items())
-            parts.append(f"  Context: ({ctx_str})")
-        return "\n".join(parts)
+def validate_input(data, schema):
+    """Validate incoming data against a schema using duck typing."""
+    for key, validator in schema.items():
+        if key not in data:
+            raise ValidationError(f"missing required key: {key}", 400)
+        if not validator(data[key]):
+            raise ValidationError(f"invalid format for key: {key}", 422)
+    return True
 
-    def dispatch_exit(self) -> None:
-        sys.stderr.write(self.render() + "\n")
-        sys.exit(self.exit_code)
-
-
-class CommandError(CLIHelperError, exit_code=2):
-    """Raised when a CLI command execution fails."""
-
-
-class ConfigurationError(CLIHelperError, exit_code=3):
-    """Raised when invalid configuration parameters are encountered."""
-
-
-class ValidationError(CLIHelperError, exit_code=4):
-    """Raised during input or payload validation failures."""
-
-
-def handle_cli_exception(err: Exception) -> None:
-    if isinstance(err, CLIHelperError):
-        err.dispatch_exit()
-    else:
-        wrapped = CLIHelperError(
-            f"Unhandled system fault: {err}",
-            context={"type": type(err).__name__}
-        )
-        wrapped.dispatch_exit()
+def main_loop_processor(input_queue, schema):
+    """Process input queue with integrated validation logic."""
+    while True:
+        try:
+            item = input_queue.get(timeout=1)
+            if item is None:
+                break
+            if validate_input(item, schema):
+                yield item
+        except ValidationError as e:
+            print(f"Validation failure [{e.code}]: {e.message}")
+        except Exception as e:
+            print(f"Unexpected system disruption: {e}")
