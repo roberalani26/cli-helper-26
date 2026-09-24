@@ -1,44 +1,42 @@
-import re
-from typing import Any, Callable, Dict, List, Union
+import functools
+import logging
 
-def sanitize_input(data: Any, schema: Dict[str, Callable]) -> Dict[str, Any]:
-    """Functional pipeline for data cleaning and validation."""
-    processed = {}
-    for key, validator in schema.items():
-        value = data.get(key)
+logger = logging.getLogger('cli-helper-26')
+
+class ValidationError(Exception):
+    pass
+
+def safe_execute(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
         try:
-            processed[key] = validator(value) if value is not None else None
-        except (ValueError, TypeError):
-            processed[key] = None
-    return processed
+            return func(*args, **kwargs)
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.error(f'Edge case detected in {func.__name__}: {e}')
+            raise ValidationError(f'Invalid input data for {func.__name__}') from e
+        except Exception as e:
+            logger.critical(f'Unexpected system failure: {e}')
+            return None
+    return wrapper
 
-def compose_validators(*funcs: Callable) -> Callable:
-    """Higher-order function for chaining validation logic."""
-    def composite(val: Any) -> Any:
-        for f in funcs:
-            val = f(val)
-        return val
-    return composite
+@safe_execute
+def validate_input_schema(data: dict, schema: list):
+    if not isinstance(data, dict):
+        raise TypeError('Input must be a dictionary')
+    
+    missing = [key for key in schema if key not in data]
+    if missing:
+        raise ValueError(f'Missing required keys: {missing}')
+        
+    return True
 
-def string_cleanup(val: str) -> str:
-    return re.sub(r'[^\w\s]', '', str(val)).strip().lower()
+def robust_parse_int(value):
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return 0
 
-def enforce_type(expected_type: type) -> Callable:
-    def check(val: Any) -> Any:
-        if not isinstance(val, expected_type):
-            raise TypeError(f"Expected {expected_type}, got {type(val)}")
-        return val
-    return check
-
-def validate_payload(data: dict, rules: Dict[str, List[Callable]]) -> Dict[str, bool]:
-    """Boolean map of validation results for input data."""
-    results = {}
-    for key, chain in rules.items():
-        try:
-            val = data.get(key)
-            for rule in chain:
-                val = rule(val)
-            results[key] = True
-        except Exception:
-            results[key] = False
-    return results
+def validate_config_integrity(config):
+    if not config:
+        raise ValidationError('Configuration object is empty')
+    return all(isinstance(v, (str, int, bool)) for v in config.values())
