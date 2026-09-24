@@ -1,36 +1,39 @@
-import time
+import sys
 import functools
-import random
 
-def retry_operation(max_attempts=3, backoff=2):
-    def decorator(func):
+class EdgeCaseManager:
+    def __init__(self, fallback=None):
+        self.fallback = fallback
+
+    def __call__(self, func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_attempts:
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        raise e
-                    sleep_time = (backoff ** attempts) + (random.randint(0, 1000) / 1000)
-                    time.sleep(sleep_time)
+            try:
+                return func(*args, **kwargs)
+            except (ValueError, TypeError, ZeroDivisionError) as e:
+                print(f"[cli-helper-26] Caught edge case: {e}", file=sys.stderr)
+                return self.fallback
+            except Exception:
+                raise
         return wrapper
-    return decorator
 
-class NetworkHandler:
-    @staticmethod
-    @retry_operation(max_attempts=4, backoff=1.5)
-    def request(url):
-        # Simulated network unpredictability
-        if random.random() < 0.7:
-            raise ConnectionError(f"Failed to connect to {url}")
-        return f"Data from {url}"
+@EdgeCaseManager(fallback=0)
+def perform_division(a, b):
+    return float(a) / float(b)
+
+@EdgeCaseManager(fallback="unknown")
+def parse_input(data):
+    if not data or not isinstance(data, str):
+        raise ValueError("Invalid input type or empty string")
+    return data.strip().lower()
+
+def process_cli_data(raw_items):
+    processed = []
+    for item in raw_items:
+        result = parse_input(item)
+        processed.append(result)
+    return processed
 
 if __name__ == '__main__':
-    handler = NetworkHandler()
-    try:
-        print(handler.request('https://api.example.com'))
-    except Exception as err:
-        print(f"Operation failed after retries: {err}")
+    print(f"Division Result: {perform_division(10, 0)}")
+    print(f"Parsed Data: {process_cli_data(['  HELLO ', None, 'WORLD'])}")
