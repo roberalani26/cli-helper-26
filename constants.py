@@ -1,38 +1,41 @@
 import os
-import sys
-from typing import Final, Any
+from pathlib import Path
+from typing import Final, Dict, Any
 
-class ConfigError(Exception):
-    """Custom sentinel for configuration failures."""
-    pass
+# Configuration defaults and environment paths
+BASE_DIR: Final[Path] = Path(__file__).resolve().parent
+LOG_LEVEL: Final[str] = os.getenv('CLI_LOG_LEVEL', 'INFO')
+TIMEOUT_SECONDS: Final[int] = int(os.getenv('CLI_TIMEOUT', '30'))
 
-def get_env_variable(key: str, fallback: Any = None) -> Any:
-    try:
-        return os.environ[key]
-    except KeyError:
-        if fallback is not None:
-            return fallback
-        raise ConfigError(f"Required environment variable '{key}' is missing")
-
-def validate_system_constraints():
-    if sys.version_info < (3, 8):
-        raise RuntimeError("Python 3.8+ required for operational stability")
-    if not os.access(os.getcwd(), os.W_OK):
-        raise PermissionError("Working directory is not writable")
-
-MAX_RETRIES: Final[int] = 3
-TIMEOUT_SECONDS: Final[float] = 30.5
-
-# Dynamic registry of critical constants loaded at runtime
-# to ensure early-fail during edge case startup
-RUNTIME_CONSTANTS = {
-    "retries": get_env_variable("CLI_RETRIES", MAX_RETRIES),
-    "timeout": get_env_variable("CLI_TIMEOUT", TIMEOUT_SECONDS),
-    "environment": get_env_variable("APP_ENV", "production")
+# Terminal style constants for CLI output decoration
+COLORS: Final[Dict[str, str]] = {
+    'HEADER': '\033[95m',
+    'BLUE': '\033[94m',
+    'GREEN': '\033[92m',
+    'WARNING': '\033[93m',
+    'FAIL': '\033[91m',
+    'ENDC': '\033[0m',
+    'BOLD': '\033[1m',
 }
 
-try:
-    validate_system_constraints()
-except (RuntimeError, PermissionError) as e:
-    sys.stderr.write(f"[FATAL] System constraints not met: {e}\n")
-    sys.exit(1)
+# Application lifecycle states
+STATE_MAP: Final[Dict[str, int]] = {
+    'INITIALIZED': 0,
+    'RUNNING': 1,
+    'PAUSED': 2,
+    'SHUTDOWN': 3,
+}
+
+# Common validation regex patterns
+VALIDATION_SCHEMAS: Final[Dict[str, str]] = {
+    'email': r'^[a-z0-9]+@[a-z0-9]+\.[a-z]{2,}$',
+    'version': r'\d+\.\d+\.\d+',
+}
+
+def get_app_identity() -> Dict[str, Any]:
+    """Returns the current identity mapping for context."""
+    return {
+        'project': 'cli-helper-26',
+        'version': '1.0.0',
+        'debug_mode': LOG_LEVEL == 'DEBUG'
+    }
