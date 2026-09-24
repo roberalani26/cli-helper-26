@@ -1,33 +1,35 @@
 import json
-import os
+from pathlib import Path
 from typing import Any, Dict
 
 class ConfigLoader:
-    def __init__(self, path: str, defaults: Dict[str, Any]):
-        self.path = path
-        self.defaults = defaults
-        self._cache = {}
+    """dynamic configuration management with deep fallback defaults"""
+    def __init__(self, config_path: str = "config.json", defaults: Dict[str, Any] = None):
+        self.path = Path(config_path)
+        self.defaults = defaults or {}
+        self.settings = self._load()
 
-    def __getattr__(self, name: str) -> Any:
-        if not self._cache:
-            self.reload()
-        return self._cache.get(name, self.defaults.get(name))
-
-    def reload(self) -> None:
+    def _load(self) -> Dict[str, Any]:
+        if not self.path.exists():
+            return self.defaults
         try:
-            if os.path.exists(self.path):
-                with open(self.path, 'r') as f:
-                    self._cache = json.load(f)
-            else:
-                self._cache = self.defaults
+            with open(self.path, 'r') as f:
+                loaded = json.load(f)
+                return {**self.defaults, **loaded}
         except (json.JSONDecodeError, IOError):
-            self._cache = self.defaults
+            return self.defaults
 
-    def update(self, key: str, value: Any) -> None:
-        self._cache[key] = value
+    def get(self, key: str, fallback: Any = None) -> Any:
+        return self.settings.get(key, fallback or self.defaults.get(key))
+
+    def __getitem__(self, key: str) -> Any:
+        return self.settings[key]
+
+    def save(self):
         with open(self.path, 'w') as f:
-            json.dump(self._cache, f, indent=4)
+            json.dump(self.settings, f, indent=4)
 
-# Example usage for cli-helper-26
-# cfg = ConfigLoader('settings.json', {'theme': 'dark', 'verbose': False})
-# print(cfg.theme)
+# usage example for cli-helper-26
+def get_app_config():
+    defaults = {"version": "1.0.0", "debug": False, "api_key": None}
+    return ConfigLoader("settings.json", defaults)
