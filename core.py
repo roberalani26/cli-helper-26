@@ -1,39 +1,43 @@
-import sys
 import functools
+import sys
+import logging
 
-class EdgeCaseManager:
-    def __init__(self, fallback=None):
-        self.fallback = fallback
+class EdgeHandler:
+    def __init__(self, logger=None):
+        self.logger = logger or logging.getLogger(__name__)
 
-    def __call__(self, func):
+    def resilient_execution(self, func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
             except (ValueError, TypeError, ZeroDivisionError) as e:
-                print(f"[cli-helper-26] Caught edge case: {e}", file=sys.stderr)
-                return self.fallback
-            except Exception:
-                raise
+                self.logger.error(f"logic deviation in {func.__name__}: {e}")
+                return None
+            except Exception as e:
+                self.logger.critical(f"catastrophic state at {func.__name__}: {e}")
+                sys.exit(1)
         return wrapper
 
-@EdgeCaseManager(fallback=0)
-def perform_division(a, b):
-    return float(a) / float(b)
+class DataProcessor:
+    def __init__(self):
+        self.handler = EdgeHandler()
 
-@EdgeCaseManager(fallback="unknown")
-def parse_input(data):
-    if not data or not isinstance(data, str):
-        raise ValueError("Invalid input type or empty string")
-    return data.strip().lower()
+    def compute_ratio(self, numerator, denominator):
+        @self.handler.resilient_execution
+        def _safe_divide(n, d):
+            return n / d
+        return _safe_divide(numerator, denominator)
 
-def process_cli_data(raw_items):
-    processed = []
-    for item in raw_items:
-        result = parse_input(item)
-        processed.append(result)
-    return processed
+    def sanitize_input(self, data):
+        @self.handler.resilient_execution
+        def _clean(val):
+            if not isinstance(val, (int, float, str)):
+                raise ValueError("invalid data type")
+            return str(val).strip()
+        return _clean(data)
 
 if __name__ == '__main__':
-    print(f"Division Result: {perform_division(10, 0)}")
-    print(f"Parsed Data: {process_cli_data(['  HELLO ', None, 'WORLD'])}")
+    proc = DataProcessor()
+    print(proc.compute_ratio(10, 0))
+    print(proc.sanitize_input(None))
