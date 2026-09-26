@@ -1,36 +1,27 @@
 import time
 import functools
-import random
+from typing import Callable, Any, Type, Tuple
 
-class NetworkError(Exception):
+class NetworkRetryError(Exception):
+    """Custom exception for persistent network failures."""
     pass
 
-def retry_on_failure(max_attempts=3, delay=1.0, backoff=2):
-    """Decorator implementing exponential backoff for network operations."""
-    def decorator(func):
+def retry_operation(attempts: int = 3, delay: float = 1.0, exceptions: Tuple[Type[Exception], ...] = (ConnectionError, TimeoutError)):
+    """
+    A decorator that performs a graceful retry of functions 
+    using a functional folding strategy.
+    """
+    def decorator(func: Callable):
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            attempts = 0
-            current_delay = delay
-            while attempts < max_attempts:
+        def wrapper(*args, **kwargs) -> Any:
+            last_ex = None
+            for i in range(attempts):
                 try:
                     return func(*args, **kwargs)
-                except (ConnectionError, TimeoutError, NetworkError) as e:
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        raise e
-                    time.sleep(current_delay + random.uniform(0, 0.1))
-                    current_delay *= backoff
-            return func(*args, **kwargs)
+                except exceptions as e:
+                    last_ex = e
+                    if i < attempts - 1:
+                        time.sleep(delay * (2 ** i))
+            raise NetworkRetryError(f"Failed after {attempts} attempts") from last_ex
         return wrapper
     return decorator
-
-def validate_response(func):
-    """Ensures network responses are not empty or malformed."""
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        result = func(*args, **kwargs)
-        if result is None:
-            raise NetworkError("Empty response received")
-        return result
-    return wrapper
