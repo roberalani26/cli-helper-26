@@ -1,27 +1,48 @@
-import time
 import functools
-from typing import Callable, Any, Type, Tuple
+import logging
 
-class NetworkRetryError(Exception):
-    """Custom exception for persistent network failures."""
+class OptimizationError(Exception):
+    """Custom exception for performance-related bottlenecks."""
     pass
 
-def retry_operation(attempts: int = 3, delay: float = 1.0, exceptions: Tuple[Type[Exception], ...] = (ConnectionError, TimeoutError)):
-    """
-    A decorator that performs a graceful retry of functions 
-    using a functional folding strategy.
-    """
-    def decorator(func: Callable):
+def memoize_with_ttl(ttl=300):
+    """Creative caching decorator to prevent redundant compute."""
+    def decorator(func):
+        cache = {}
         @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
-            last_ex = None
-            for i in range(attempts):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as e:
-                    last_ex = e
-                    if i < attempts - 1:
-                        time.sleep(delay * (2 ** i))
-            raise NetworkRetryError(f"Failed after {attempts} attempts") from last_ex
+        def wrapper(*args, **kwargs):
+            key = (args, frozenset(kwargs.items()))
+            if key in cache:
+                return cache[key]
+            result = func(*args, **kwargs)
+            cache[key] = result
+            return result
         return wrapper
     return decorator
+
+def performance_monitor(threshold=0.5):
+    """Decorator that tracks execution time of core functions."""
+    import time
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            start = time.perf_counter()
+            result = func(*args, **kwargs)
+            elapsed = time.perf_counter() - start
+            if elapsed > threshold:
+                logging.warning(f"Performance degradation in {func.__name__}: {elapsed:.4f}s")
+            return result
+        return wrapper
+    return decorator
+
+class LazyLoader:
+    """Delayed initialization for memory-heavy resources."""
+    def __init__(self, factory):
+        self._factory = factory
+        self._instance = None
+
+    @property
+    def instance(self):
+        if self._instance is None:
+            self._instance = self._factory()
+        return self._instance
