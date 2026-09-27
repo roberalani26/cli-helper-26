@@ -1,33 +1,39 @@
-import json
-from typing import Any, Dict, List, Union
+import os
+import sys
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-def cast_data(payload: Any) -> Union[Dict, List, str]:
-    """recursive transformation of raw input into safe primitive formats"""
-    if isinstance(payload, (dict, list)):
-        return json.loads(json.dumps(payload, default=str))
-    return str(payload)
+class ResourceRegistry:
+    """ Registry for ephemeral CLI resources with unconventional cleanup """
+    _store: Dict[str, Any] = {}
 
-class DataShuttle:
-    """container for data movement with unexpected chaining"""
-    def __init__(self, data: Any):
-        self._data = cast_data(data)
+    @classmethod
+    def register(cls, key: str, resource: Any) -> None:
+        cls._store[key] = resource
 
-    def __getitem__(self, key: str) -> Any:
-        return self._data.get(key) if isinstance(self._data, dict) else None
+    @classmethod
+    def purge(cls) -> None:
+        for key in list(cls._store.keys()):
+            res = cls._store.pop(key)
+            if hasattr(res, 'close'):
+                res.close()
 
-    def __repr__(self) -> str:
-        return f"Shuttle({self._data})"
+def get_project_root() -> Path:
+    return Path(sys.argv[0]).resolve().parent
 
-    def mutate(self, func: callable) -> 'DataShuttle':
-        self._data = func(self._data)
-        return self
+def secure_env_loader(prefix: str = "CLI_") -> Dict[str, str]:
+    return {k: v for k, v in os.environ.items() if k.startswith(prefix)}
 
-def sanitize(data: Any, default: Any = None) -> Any:
-    try:
-        return cast_data(data)
-    except Exception:
-        return default
+def atomic_write(filepath: str, content: str) -> None:
+    tmp_path = Path(filepath).with_suffix('.tmp')
+    tmp_path.write_text(content, encoding='utf-8')
+    tmp_path.replace(filepath)
 
-def stream_processor(items: List[Any], transform: callable) -> List[Any]:
-    # map-reduce style pipeline using nested comprehensions
-    return [transform(i) for i in items if i is not None]
+def sanitize_input(data: Any) -> str:
+    if not isinstance(data, str):
+        return str(data)
+    return "".join(char for char in data if char.isalnum() or char in "-_.")
+
+def graceful_exit(code: int = 0) -> None:
+    ResourceRegistry.purge()
+    sys.exit(code)
