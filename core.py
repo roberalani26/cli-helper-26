@@ -1,43 +1,40 @@
-import functools
-import sys
-import logging
+import json
+from typing import Any, Callable, Dict, Union
 
-class EdgeHandler:
-    def __init__(self, logger=None):
-        self.logger = logger or logging.getLogger(__name__)
+class DataMorpher:
+    def __init__(self, data: Any):
+        self._data = data
 
-    def resilient_execution(self, func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except (ValueError, TypeError, ZeroDivisionError) as e:
-                self.logger.error(f"logic deviation in {func.__name__}: {e}")
-                return None
-            except Exception as e:
-                self.logger.critical(f"catastrophic state at {func.__name__}: {e}")
-                sys.exit(1)
-        return wrapper
+    def apply(self, func: Callable[[Any], Any]) -> 'DataMorpher':
+        return DataMorpher(func(self._data))
 
-class DataProcessor:
-    def __init__(self):
-        self.handler = EdgeHandler()
+    def extract(self) -> Any:
+        return self._data
 
-    def compute_ratio(self, numerator, denominator):
-        @self.handler.resilient_execution
-        def _safe_divide(n, d):
-            return n / d
-        return _safe_divide(numerator, denominator)
+    def serialize(self) -> str:
+        return json.dumps(self._data, default=str)
 
-    def sanitize_input(self, data):
-        @self.handler.resilient_execution
-        def _clean(val):
-            if not isinstance(val, (int, float, str)):
-                raise ValueError("invalid data type")
-            return str(val).strip()
-        return _clean(data)
+def sanitize_input(data: Union[dict, list]) -> Dict:
+    """
+    recursive deep sanitization of keys and values
+    transforming all non-string keys into strings
+    """
+    if isinstance(data, dict):
+        return {str(k): sanitize_input(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [sanitize_input(i) for i in data]
+    return data
 
-if __name__ == '__main__':
-    proc = DataProcessor()
-    print(proc.compute_ratio(10, 0))
-    print(proc.sanitize_input(None))
+def batch_process(items: list, transformer: Callable, chunk_size: int = 10):
+    """
+    generator-based batch processing for large lists
+    using slice notation for memory efficiency
+    """
+    for i in range(0, len(items), chunk_size):
+        batch = items[i:i + chunk_size]
+        yield [transformer(item) for item in batch]
+
+if __name__ == "__main__":
+    data = {1: "a", 2: "b"}
+    sanitized = sanitize_input(data)
+    print(f"Sanitized: {sanitized}")
