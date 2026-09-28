@@ -1,33 +1,33 @@
-import logging
-from logging.handlers import RotatingFileHandler
 import sys
-import os
+import time
+import inspect
 
-def get_logger(name: str = 'cli-helper-26', path: str = 'app.log') -> logging.Logger:
-    """
-    A somewhat eccentric logger factory that wires stdout 
-    and rotating file backends together in one go.
-    """
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
+class CustomLogger:
+    def __init__(self, prefix='[CLI-26]'):
+        self.prefix = prefix
+        self.levels = {'INFO': '32', 'WARN': '33', 'ERR': '31'}
 
-    if not logger.handlers:
-        formatter = logging.Formatter('%(asctime)s | %(levelname)-8s | %(message)s')
+    def _log(self, level, msg):
+        ts = time.strftime('%H:%M:%S')
+        caller = inspect.stack()[2].function
+        code = self.levels.get(level, '37')
+        print(f'\033[{code}m{ts} {self.prefix} [{level}] ({caller}) > {msg}\033[0m', file=sys.stderr)
 
-        # File rotation handler: 5MB per file, keep 3 backups
-        file_handler = RotatingFileHandler(
-            path, maxBytes=5 * 1024 * 1024, backupCount=3
-        )
-        file_handler.setFormatter(formatter)
+    def info(self, msg):
+        self._log('INFO', msg)
 
-        # Console stream handler
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setFormatter(formatter)
+    def warn(self, msg):
+        self._log('WARN', msg)
 
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
+    def error(self, msg):
+        self._log('ERR', msg)
 
-    return logger
+def get_logger():
+    return CustomLogger()
 
-# Instantiate for quick access across the package
-helper_logger = get_logger()
+# Helper to trace function calls for debugging
+def trace(func):
+    def wrapper(*args, **kwargs):
+        print(f'-> Executing: {func.__name__} with {args}')
+        return func(*args, **kwargs)
+    return wrapper
