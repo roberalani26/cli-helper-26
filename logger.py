@@ -1,33 +1,60 @@
 import sys
 import time
-import inspect
+from typing import Any, Dict
 
-class CustomLogger:
-    def __init__(self, prefix='[CLI-26]'):
-        self.prefix = prefix
-        self.levels = {'INFO': '32', 'WARN': '33', 'ERR': '31'}
 
-    def _log(self, level, msg):
-        ts = time.strftime('%H:%M:%S')
-        caller = inspect.stack()[2].function
-        code = self.levels.get(level, '37')
-        print(f'\033[{code}m{ts} {self.prefix} [{level}] ({caller}) > {msg}\033[0m', file=sys.stderr)
+class CLIHelperLogger:
+    """A creative, latency-aware terminal logger for cli-helper-26."""
 
-    def info(self, msg):
-        self._log('INFO', msg)
+    COLORS: Dict[str, str] = {
+        "DEBUG": "\u001b[36m",
+        "INFO": "\u001b[32m",
+        "WARNING": "\u001b[33m",
+        "ERROR": "\u001b[31m",
+        "RESET": "\u001b[0m",
+    }
 
-    def warn(self, msg):
-        self._log('WARN', msg)
+    def __init__(self, name: str = "CLI"):
+        self.name = name
+        self.last_log_time = time.time()
 
-    def error(self, msg):
-        self._log('ERR', msg)
+    def _get_latency_indicator(self) -> str:
+        now = time.time()
+        elapsed = now - self.last_log_time
+        self.last_log_time = now
+        if elapsed < 0.1:
+            return "⚡"
+        elif elapsed < 1.0:
+            return "⏱️"
+        return "⏳"
 
-def get_logger():
-    return CustomLogger()
+    def log(self, level: str, message: str, **kwargs: Any) -> None:
+        color = self.COLORS.get(level.upper(), self.COLORS["RESET"])
+        reset = self.COLORS["RESET"]
+        indicator = self._get_latency_indicator()
+        timestamp = time.strftime("%H:%M:%S")
 
-# Helper to trace function calls for debugging
-def trace(func):
-    def wrapper(*args, **kwargs):
-        print(f'-> Executing: {func.__name__} with {args}')
-        return func(*args, **kwargs)
-    return wrapper
+        extra_tags = " ".join(f"[{k}={v}]" for k, v in kwargs.items())
+        tag_str = f" \u001b[90m{extra_tags}\u001b[0m" if extra_tags else ""
+
+        output = (
+            f"[{timestamp}] {indicator} {color}[{level:7}]"
+            f"{reset} ({self.name}) -> {message}{tag_str}"
+        )
+        sys.stdout.write(output + "\n")
+        sys.stdout.flush()
+
+    def debug(self, msg: str, **kwargs: Any) -> None:
+        self.log("DEBUG", msg, **kwargs)
+
+    def info(self, msg: str, **kwargs: Any) -> None:
+        self.log("INFO", msg, **kwargs)
+
+    def warn(self, msg: str, **kwargs: Any) -> None:
+        self.log("WARNING", msg, **kwargs)
+
+    def error(self, msg: str, **kwargs: Any) -> None:
+        self.log("ERROR", msg, **kwargs)
+
+
+logger = CLIHelperLogger("CORE")
