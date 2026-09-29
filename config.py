@@ -1,36 +1,34 @@
+import json
 import os
-from pathlib import Path
-from dataclasses import dataclass
+from typing import Any, Dict
 
-@dataclass(frozen=True)
-class AppConfig:
-    root: Path = Path.cwd()
-    env: str = os.getenv('APP_ENV', 'production')
-    debug: bool = os.getenv('DEBUG', 'false').lower() == 'true'
+class ConfigLoader:
+    def __init__(self, defaults: Dict[str, Any] = None):
+        self._data = defaults or {}
 
-def load_settings():
-    try:
-        return AppConfig()
-    except Exception:
-        return AppConfig()
+    def load_from_json(self, path: str) -> None:
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                file_data = json.load(f)
+                self._data.update(file_data)
 
-class ConfigRegistry:
-    _data = {}
+    def __getattr__(self, name: str) -> Any:
+        if name in self._data:
+            return self._data[name]
+        raise AttributeError(f'config key {name} missing')
 
-    @classmethod
-    def register(cls, key: str, value: any):
-        cls._data[key] = value
+    def __getitem__(self, key: str) -> Any:
+        return self._data.get(key)
 
-    @classmethod
-    def get(cls, key: str, default=None):
-        return cls._data.get(key, default)
+    def __repr__(self) -> str:
+        return f"ConfigLoader({self._data})"
 
-cfg = load_settings()
-
-def initialize():
-    ConfigRegistry.register('mode', cfg.env)
-    ConfigRegistry.register('path', cfg.root / 'data')
-
-if __name__ == '__main__':
-    initialize()
-    print(f'system initialized in {ConfigRegistry.get('mode')} mode')
+def get_config(path: str = 'config.json', defaults: Dict = None):
+    loader = ConfigLoader(defaults)
+    loader.load_from_json(path)
+    
+    class ConfigProxy:
+        def __init__(self, d):
+            self.__dict__ = d
+            
+    return ConfigProxy(loader._data)
