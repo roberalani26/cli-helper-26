@@ -1,40 +1,28 @@
-import json
-from typing import Any, Callable, Dict, Union
+import time
+import functools
+import random
 
-class DataMorpher:
-    def __init__(self, data: Any):
-        self._data = data
+def retry_operation(max_attempts=3, delay=1.0, backoff=2.0):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            current_delay = delay
+            while attempts < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    attempts += 1
+                    if attempts == max_attempts:
+                        raise e
+                    time.sleep(current_delay + random.uniform(0, 0.1))
+                    current_delay *= backoff
+        return wrapper
+    return decorator
 
-    def apply(self, func: Callable[[Any], Any]) -> 'DataMorpher':
-        return DataMorpher(func(self._data))
-
-    def extract(self) -> Any:
-        return self._data
-
-    def serialize(self) -> str:
-        return json.dumps(self._data, default=str)
-
-def sanitize_input(data: Union[dict, list]) -> Dict:
-    """
-    recursive deep sanitization of keys and values
-    transforming all non-string keys into strings
-    """
-    if isinstance(data, dict):
-        return {str(k): sanitize_input(v) for k, v in data.items()}
-    elif isinstance(data, list):
-        return [sanitize_input(i) for i in data]
-    return data
-
-def batch_process(items: list, transformer: Callable, chunk_size: int = 10):
-    """
-    generator-based batch processing for large lists
-    using slice notation for memory efficiency
-    """
-    for i in range(0, len(items), chunk_size):
-        batch = items[i:i + chunk_size]
-        yield [transformer(item) for item in batch]
-
-if __name__ == "__main__":
-    data = {1: "a", 2: "b"}
-    sanitized = sanitize_input(data)
-    print(f"Sanitized: {sanitized}")
+@retry_operation(max_attempts=4, delay=0.5)
+def fetch_network_resource(url):
+    # Simulate volatile network state
+    if random.random() < 0.7:
+        raise ConnectionError("Transient network jitter detected")
+    return f"Payload from {url}"
