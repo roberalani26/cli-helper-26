@@ -1,60 +1,43 @@
 import sys
-import time
-from typing import Any, Dict
+import traceback
+from pathlib import Path
 
 
-class CLIHelperLogger:
-    """A creative, latency-aware terminal logger for cli-helper-26."""
+class ResilientLogger:
+    def __init__(self, filepath: str = "cli_activity.log"):
+        self.filepath = Path(filepath)
+        self.fallback = sys.stderr
 
-    COLORS: Dict[str, str] = {
-        "DEBUG": "\u001b[36m",
-        "INFO": "\u001b[32m",
-        "WARNING": "\u001b[33m",
-        "ERROR": "\u001b[31m",
-        "RESET": "\u001b[0m",
-    }
+    def _write_safely(self, message: str) -> None:
+        try:
+            clean_message = message.encode("utf-8", errors="replace").decode("utf-8")
+        except Exception:
+            clean_message = "[Encoding Error] Failed to process log entry"
 
-    def __init__(self, name: str = "CLI"):
-        self.name = name
-        self.last_log_time = time.time()
+        try:
+            with open(self.filepath, "a", encoding="utf-8") as f:
+                f.write(clean_message + "\n")
+        except (PermissionError, OSError) as err:
+            self.fallback.write(
+                f"[FALLBACK] logging failure ({type(err).__name__}): {clean_message}\n"
+            )
+            self.fallback.flush()
 
-    def _get_latency_indicator(self) -> str:
-        now = time.time()
-        elapsed = now - self.last_log_time
-        self.last_log_time = now
-        if elapsed < 0.1:
-            return "⚡"
-        elif elapsed < 1.0:
-            return "⏱️"
-        return "⏳"
+    def log(self, level: str, raw_data: any) -> None:
+        try:
+            detail = str(raw_data)
+        except Exception as e:
+            detail = f"<Unstringable {type(raw_data).__name__}: {type(e).__name__}>"
 
-    def log(self, level: str, message: str, **kwargs: Any) -> None:
-        color = self.COLORS.get(level.upper(), self.COLORS["RESET"])
-        reset = self.COLORS["RESET"]
-        indicator = self._get_latency_indicator()
-        timestamp = time.strftime("%H:%M:%S")
+        if len(detail) > 1000:
+            detail = detail[:997] + "..."
 
-        extra_tags = " ".join(f"[{k}={v}]" for k, v in kwargs.items())
-        tag_str = f" \u001b[90m{extra_tags}\u001b[0m" if extra_tags else ""
+        formatted = f"[{level.upper()}] {detail}"
+        self._write_safely(formatted)
 
-        output = (
-            f"[{timestamp}] {indicator} {color}[{level:7}]"
-            f"{reset} ({self.name}) -> {message}{tag_str}"
-        )
-        sys.stdout.write(output + "\n")
-        sys.stdout.flush()
-
-    def debug(self, msg: str, **kwargs: Any) -> None:
-        self.log("DEBUG", msg, **kwargs)
-
-    def info(self, msg: str, **kwargs: Any) -> None:
-        self.log("INFO", msg, **kwargs)
-
-    def warn(self, msg: str, **kwargs: Any) -> None:
-        self.log("WARNING", msg, **kwargs)
-
-    def error(self, msg: str, **kwargs: Any) -> None:
-        self.log("ERROR", msg, **kwargs)
-
-
-logger = CLIHelperLogger("CORE")
+    def log_exception(self, exc: Exception) -> None:
+        try:
+            tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        except Exception:
+            tb = f"Could not trace: {type(exc).__name__}"
+        self.log("CRITICAL", tb)
