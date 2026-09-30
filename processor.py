@@ -1,41 +1,53 @@
-import time
 import functools
-import random
+from typing import Any, Callable, List, Union
 
-def with_retry(max_attempts=3, backoff=1.0):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_attempts:
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        raise e
-                    sleep_time = backoff * (2 ** (attempts - 1)) + random.uniform(0, 0.1)
-                    time.sleep(sleep_time)
-        return wrapper
-    return decorator
 
-class NetworkProcessor:
-    def __init__(self, timeout=5):
-        self.timeout = timeout
+class StreamPipe:
+    """A lightweight, operator-overloaded data processor for CLI streams."""
 
-    @with_retry(max_attempts=4, backoff=0.5)
-    def fetch_data(self, url):
-        # Simulate flaky network behavior
-        if random.random() < 0.7:
-            raise ConnectionError(f"Failed to connect to {url}")
-        return {"status": 200, "data": "payload_data"}
+    def __init__(self, data: Any = None):
+        self._data = data
+        self._ops: List[Callable[[Any], Any]] = []
 
-def process_network_batch(urls):
-    processor = NetworkProcessor()
-    results = {}
-    for url in urls:
-        try:
-            results[url] = processor.fetch_data(url)
-        except Exception as e:
-            results[url] = str(e)
-    return results
+    def __rshift__(self, other: Union[Callable[[Any], Any], "StreamPipe"]) -> "StreamPipe":
+        new_pipe = StreamPipe(self._data)
+        new_pipe._ops = list(self._ops)
+        if callable(other):
+            new_pipe._ops.append(other)
+        elif isinstance(other, StreamPipe):
+            new_pipe._ops.extend(other._ops)
+        return new_pipe
+
+    def __call__(self, initial_data: Any = None) -> Any:
+        target = initial_data if initial_data is not None else self._data
+        return functools.reduce(lambda val, op: op(val), self._ops, target)
+
+    def collect(self) -> Any:
+        return self.__call__()
+
+
+def flatten_nested(data: Any, sep: str = ".") -> dict:
+    """Flattens a deeply nested dictionary or list structure."""
+
+    def _flatten(obj, prefix=""):
+        items = []
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                new_key = f"{prefix}{sep}{k}" if prefix else str(k)
+                items.extend(_flatten(v, new_key).items())
+        elif isinstance(obj, (list, tuple)):
+            for i, v in enumerate(obj):
+                new_key = f"{prefix}[{i}]"
+                items.extend(_flatten(v, new_key).items())
+        else:
+            items.append((prefix, obj))
+        return dict(items)
+
+    return _flatten(data)
+
+
+def filter_keys(predicate: Callable[[str], bool]) -> Callable[[dict], dict]:
+    """Returns a transformer function that filters dict keys by a predicate."""
+    return lambda d: {
+        k: v for k, v in d.items() if predicate(str(k))
+    } if isinstance(d, dict) else d
