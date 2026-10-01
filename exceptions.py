@@ -1,48 +1,28 @@
-import functools
-import logging
+class DataProcessingError(Exception):
+    """Base exception for data operations in cli-helper-26."""
 
-class OptimizationError(Exception):
-    """Custom exception for performance-related bottlenecks."""
-    pass
+class DataMalformedError(DataProcessingError):
+    """Raised when input schema is inconsistent."""
 
-def memoize_with_ttl(ttl=300):
-    """Creative caching decorator to prevent redundant compute."""
-    def decorator(func):
-        cache = {}
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            key = (args, frozenset(kwargs.items()))
-            if key in cache:
-                return cache[key]
-            result = func(*args, **kwargs)
-            cache[key] = result
-            return result
-        return wrapper
-    return decorator
+class DataAccessDeniedError(DataProcessingError):
+    """Raised when underlying source refuses access."""
 
-def performance_monitor(threshold=0.5):
-    """Decorator that tracks execution time of core functions."""
-    import time
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            start = time.perf_counter()
-            result = func(*args, **kwargs)
-            elapsed = time.perf_counter() - start
-            if elapsed > threshold:
-                logging.warning(f"Performance degradation in {func.__name__}: {elapsed:.4f}s")
-            return result
-        return wrapper
-    return decorator
+def wrap_data_op(func):
+    """Decorator that wraps data logic in custom exceptions."""
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except (ValueError, TypeError) as e:
+            raise DataMalformedError(f"Input anomaly: {e}") from e
+        except PermissionError as e:
+            raise DataAccessDeniedError(f"Permission breach: {e}") from e
+    return wrapper
 
-class LazyLoader:
-    """Delayed initialization for memory-heavy resources."""
-    def __init__(self, factory):
-        self._factory = factory
-        self._instance = None
+class DataFaultHandler:
+    """Manager for data fault logging and re-raising."""
+    def __init__(self, context="general"):
+        self.context = context
 
-    @property
-    def instance(self):
-        if self._instance is None:
-            self._instance = self._factory()
-        return self._instance
+    def handle(self, e: Exception):
+        print(f"[{self.context}] Data fault encountered: {type(e).__name__}")
+        raise e
