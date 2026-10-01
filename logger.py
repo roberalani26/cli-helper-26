@@ -1,43 +1,66 @@
-import sys
-import traceback
+import gzip
+import logging
 from pathlib import Path
 
+class GzipRotatingHandler(logging.Handler):
+    """A custom logging handler that rotates files by compressing them
+    into .gz format instantly upon reaching a line threshold.
+    """
+    def __init__(self, filename: str, max_lines: int = 100, backup_count: int = 3):
+        super().__init__()
+        self.filepath = Path(filename)
+        self.max_lines = max_lines
+        self.backup_count = backup_count
+        self.line_count = 0
+        self._ensure_file()
 
-class ResilientLogger:
-    def __init__(self, filepath: str = "cli_activity.log"):
-        self.filepath = Path(filepath)
-        self.fallback = sys.stderr
+    def _ensure_file(self) -> None:
+        self.filepath.parent.mkdir(parents=True, exist_ok=True)
+        if self.filepath.exists():
+            with open(self.filepath, 'r', encoding='utf-8') as f:
+                self.line_count = sum(1 for _ in f)
+        else:
+            self.filepath.touch()
+            self.line_count = 0
 
-    def _write_safely(self, message: str) -> None:
+    def emit(self, record: logging.LogRecord) -> None:
         try:
-            clean_message = message.encode("utf-8", errors="replace").decode("utf-8")
+            msg = self.format(record)
+            with open(self.filepath, 'a', encoding='utf-8') as f:
+                f.write(msg + '\n')
+            self.line_count += 1
+
+            if self.line_count >= self.max_lines:
+                self.rotate()
         except Exception:
-            clean_message = "[Encoding Error] Failed to process log entry"
+            self.handleError(record)
 
-        try:
-            with open(self.filepath, "a", encoding="utf-8") as f:
-                f.write(clean_message + "\n")
-        except (PermissionError, OSError) as err:
-            self.fallback.write(
-                f"[FALLBACK] logging failure ({type(err).__name__}): {clean_message}\n"
-            )
-            self.fallback.flush()
+    def rotate(self) -> None:
+        for i in range(self.backup_count - 1, 0, -1):
+            old_file = self.filepath.with_suffix(f'.{i}.log.gz')
+            new_file = self.filepath.with_suffix(f'.{i+1}.log.gz')
+            if old_file.exists():
+                old_file.rename(new_file)
 
-    def log(self, level: str, raw_data: any) -> None:
-        try:
-            detail = str(raw_data)
-        except Exception as e:
-            detail = f"<Unstringable {type(raw_data).__name__}: {type(e).__name__}>"
+        target = self.filepath.with_suffix('.1.log.gz')
+        if self.filepath.exists():
+            with open(self.filepath, 'rb') as f_in:
+                with gzip.open(target, 'wb') as f_out:
+                    f_out.writelines(f_in)
+            self.filepath.unlink()
 
-        if len(detail) > 1000:
-            detail = detail[:997] + "..."
+        self._ensure_file()
 
-        formatted = f"[{level.upper()}] {detail}"
-        self._write_safely(formatted)
+def setup_logger(name: str = 'cli_helper', log_file: str = 'app.log', max_lines: int = 50) -> logging.Logger:
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
 
-    def log_exception(self, exc: Exception) -> None:
-        try:
-            tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-        except Exception:
-            tb = f"Could not trace: {type(exc).__name__}"
-        self.log("CRITICAL", tb)
+    handler = GzipRotatingHandler(log_file, max_lines=max_lines)
+    formatter = logging.Formatter(
+        '[%(asctime)s] %(levelname)s [%(name)s]: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    return logger
