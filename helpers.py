@@ -1,29 +1,36 @@
-import time
-import functools
-import random
+import sys
+from functools import wraps
 
-def retry_with_backoff(retries=3, backoff_in_seconds=1):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            x = 0
-            while x <= retries:
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    if x == retries:
-                        raise e
-                    delay = (backoff_in_seconds * (2 ** x)) + random.uniform(0, 1)
-                    time.sleep(delay)
-                    x += 1
-        return wrapper
-    return decorator
+def resilient_execution(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception as e:
+            sys.stderr.write(f'edge case anomaly: {str(e)}\n')
+            return None
+    return wrapper
 
-def request_stub(data):
-    if random.random() < 0.7:
-        raise ConnectionError("transient network glitch")
-    return f"success: {data}"
+@resilient_execution
+def safe_parse_input(user_input, target_type):
+    if not user_input:
+        raise ValueError('empty input buffer')
+    return target_type(user_input)
 
-if __name__ == '__main__':
-    robust_call = retry_with_backoff()(request_stub)
-    print(robust_call("ping"))
+def sanitize_path(path):
+    try:
+        return str(path).encode('ascii', 'ignore').decode('utf-8')
+    except (UnicodeDecodeError, AttributeError):
+        return 'invalid_path_sequence'
+
+class GuardedContext:
+    def __init__(self, resource):
+        self.resource = resource
+    def __enter__(self):
+        return self.resource
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            sys.stderr.write(f'resource cleanup: {exc_val}\n')
+        return True
