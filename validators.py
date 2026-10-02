@@ -1,42 +1,29 @@
-import functools
-import logging
+from typing import Any, Callable, Dict, Optional, Union
 
-logger = logging.getLogger('cli-helper-26')
+class InputValidator:
+    """Validator class for CLI input sanitization with functional composition."""
 
-class ValidationError(Exception):
-    pass
+    def __init__(self, rules: Dict[str, Callable[[Any], bool]]) -> None:
+        """Initialize validator with a dictionary of field names and boolean predicates."""
+        self.rules: Dict[str, Callable[[Any], bool]] = rules
 
-def safe_execute(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except (ValueError, TypeError, AttributeError) as e:
-            logger.error(f'Edge case detected in {func.__name__}: {e}')
-            raise ValidationError(f'Invalid input data for {func.__name__}') from e
-        except Exception as e:
-            logger.critical(f'Unexpected system failure: {e}')
-            return None
-    return wrapper
+    def validate_payload(self, data: Dict[str, Any]) -> Dict[str, bool]:
+        """Evaluate payload against registered schema rules."""
+        return {key: rule(data.get(key)) for key, rule in self.rules.items()}
 
-@safe_execute
-def validate_input_schema(data: dict, schema: list):
-    if not isinstance(data, dict):
-        raise TypeError('Input must be a dictionary')
-    
-    missing = [key for key in schema if key not in data]
-    if missing:
-        raise ValueError(f'Missing required keys: {missing}')
-        
-    return True
+    @staticmethod
+    def is_non_empty(value: Optional[str]) -> bool:
+        """Check if string is populated and trimmed."""
+        return isinstance(value, str) and len(value.strip()) > 0
 
-def robust_parse_int(value):
-    try:
-        return int(value)
-    except (ValueError, TypeError):
-        return 0
+    @staticmethod
+    def is_positive_integer(value: Any) -> bool:
+        """Ensure value is a positive integer instance."""
+        return isinstance(value, int) and value > 0
 
-def validate_config_integrity(config):
-    if not config:
-        raise ValidationError('Configuration object is empty')
-    return all(isinstance(v, (str, int, bool)) for v in config.values())
+def create_validator(schema: Dict[str, Callable[[Any], bool]]) -> InputValidator:
+    """Factory function returning a configured InputValidator instance."""
+    return InputValidator(schema)
+
+# Example usage for type safety in cli-helper-26
+# validator = create_validator({'age': InputValidator.is_positive_integer})
