@@ -1,42 +1,57 @@
-# cli-helper-26
-
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-`cli-helper-26` is a lightweight Python library designed to streamline the creation of interactive command-line interfaces. It simplifies user input validation, terminal formatting, and progress tracking so you can focus on building core application logic.
+# cli-helper-26
+
+`cli-helper-26` is a lightweight Python library designed to streamline the creation of interactive command-line tools. It automates argument parsing, provides rich terminal formatting, and manages persistent user configurations with zero boilerplate.
 
 ## Features
 
-* **Strict Input Validation:** Prompt users for specific data types (emails, paths, numbers) with automatic retry logic and customizable error messages.
-* **Beautiful Terminal Output:** Built-in support for ANSI colors, styled text block banners, and dynamically aligned tables.
-* **Non-blocking Progress Indicators:** Simple-to-use terminal spinners and progress bars that run seamlessly during background tasks.
+- **Declarative Command Routing:** Define CLI options and subcommands directly using Python type hints and decorators.
+- **Rich Terminal Formatting:** Built-in support for ANSI colors, progress bars, spin indicators, and structured table outputs.
+- **Session State Management:** Read and write JSON or YAML configuration files automatically across execution cycles.
+- **Interactive Prompts:** Collect user input with built-in validation, secure password masking, and fuzzy-search selection menus.
 
 ## Installation
 
-Install the package directly from PyPI using pip:
+Install the package directly from PyPI using `pip`:
 
 ```bash
 pip install cli-helper-26
 ```
 
+Or install the latest development version via Git:
+
+```bash
+pip install git+https://github.com/Developer/cli-helper-26.git
+```
+
 ## Quick Start
 
-Create interactive prompts and styled outputs in just a few lines of code:
+Create a script named `app.py`:
 
 ```python
-import time
-from cli_helper_26 import prompt, Spinner, style
+from cli_helper_26 import CLIApp, command, prompt
 
-# Get validated input from the user
-age = prompt.integer("Enter your age: ", min_value=18, max_value=99)
+app = CLIApp(name="task-runner")
 
-# Run a task with a visual progress spinner
-with Spinner("Processing registration..."):
-    time.sleep(1.5)
+@command(help="Initialize a new project environment")
+def init(env_name: str, verbose: bool = False):
+    if verbose:
+        app.log.info(f"Setting up environment: {env_name}")
+    
+    role = prompt.select("Select primary role:", ["developer", "tester", "admin"])
+    app.print(f"Successfully initialized {env_name} for {role}!", style="green")
 
-# Output styled text
-print(style.success(f"Successfully registered user (Age: {age})!"))
+if __name__ == "__main__":
+    app.run()
+```
+
+Run the command in your terminal:
+
+```bash
+python app.py init my-project --verbose
 ```
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+Distributed under the MIT License. See `LICENSE` for details.
