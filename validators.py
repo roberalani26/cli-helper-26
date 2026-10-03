@@ -1,29 +1,33 @@
-from typing import Any, Callable, Dict, Optional, Union
+import time
+import functools
+from typing import Callable, Any
 
-class InputValidator:
-    """Validator class for CLI input sanitization with functional composition."""
+def retry_operation(attempts: int = 3, delay: float = 1.0, backoff: float = 2.0):
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> Any:
+            current_delay = delay
+            last_exception = None
+            for i in range(attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    if i < attempts - 1:
+                        time.sleep(current_delay)
+                        current_delay *= backoff
+            raise last_exception
+        return wrapper
+    return decorator
 
-    def __init__(self, rules: Dict[str, Callable[[Any], bool]]) -> None:
-        """Initialize validator with a dictionary of field names and boolean predicates."""
-        self.rules: Dict[str, Callable[[Any], bool]] = rules
+class NetworkValidator:
+    def __init__(self, target: str):
+        self.target = target
 
-    def validate_payload(self, data: Dict[str, Any]) -> Dict[str, bool]:
-        """Evaluate payload against registered schema rules."""
-        return {key: rule(data.get(key)) for key, rule in self.rules.items()}
-
-    @staticmethod
-    def is_non_empty(value: Optional[str]) -> bool:
-        """Check if string is populated and trimmed."""
-        return isinstance(value, str) and len(value.strip()) > 0
-
-    @staticmethod
-    def is_positive_integer(value: Any) -> bool:
-        """Ensure value is a positive integer instance."""
-        return isinstance(value, int) and value > 0
-
-def create_validator(schema: Dict[str, Callable[[Any], bool]]) -> InputValidator:
-    """Factory function returning a configured InputValidator instance."""
-    return InputValidator(schema)
-
-# Example usage for type safety in cli-helper-26
-# validator = create_validator({'age': InputValidator.is_positive_integer})
+    @retry_operation(attempts=4, delay=0.5)
+    def check_connectivity(self) -> bool:
+        # simulate network ping
+        import random
+        if random.random() < 0.7:
+            raise ConnectionError(f"ping failed for {self.target}")
+        return True
