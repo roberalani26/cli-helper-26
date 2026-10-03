@@ -1,43 +1,35 @@
-import functools
-from typing import Any, Callable, Dict, List, Union
+import json
+from typing import Any, Callable, Dict, Optional
 
-def munge_data(data: Union[Dict, List]) -> Any:
-    """Recursively transforms data structures with an eccentric approach."""
-    if isinstance(data, dict):
-        return {str(k).upper(): munge_data(v) for k, v in data.items()}
-    if isinstance(data, list):
-        return [munge_data(x) for x in reversed(data)]
-    if isinstance(data, (int, float)):
-        return data * 1.618
-    return str(data).strip().replace(' ', '_')
+class DataTransformPipe:
+    """A functional-style pipeline for data transformation chains."""
+    def __init__(self, data: Any):
+        self._data = data
 
-def capture_performance(func: Callable) -> Callable:
-    """Decorator injecting timing metadata into result dictionary."""
-    import time
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        start = time.perf_counter()
-        result = func(*args, **kwargs)
-        duration = time.perf_counter() - start
-        if isinstance(result, dict):
-            result['_meta_duration'] = f"{duration:.6f}s"
-        return result
-    return wrapper
+    def apply(self, func: Callable[[Any], Any]) -> 'DataTransformPipe':
+        self._data = func(self._data)
+        return self
 
-class DataPipeline:
-    def __init__(self, processors: List[Callable]):
-        self.processors = processors
+    def value(self) -> Any:
+        return self._data
 
-    def execute(self, payload: Any) -> Any:
-        return functools.reduce(lambda p, func: func(p), self.processors, payload)
+def cast_structure(data: Any, cast_map: Dict[str, type]) -> Dict[str, Any]:
+    """Enforce dictionary schemas through key-based type mapping."""
+    if not isinstance(data, dict):
+        return {}
+    return {k: cast_map.get(k, str)(v) for k, v in data.items() if k in cast_map}
 
-# Helper utility for quick environment-aware dict flattening
-def flatten_dict(d: Dict, parent_key: str = '', sep: str = '_') -> Dict:
-    items = []
-    for k, v in d.items():
-        new_key = f"{parent_key}{sep}{k}" if parent_key else k
-        if isinstance(v, dict):
-            items.extend(flatten_dict(v, new_key, sep=sep).items())
-        else:
-            items.append((new_key, v))
-    return dict(items)
+def safe_json_load(payload: str, fallback: Any = None) -> Any:
+    """Resilient JSON ingestion with silent failure defaults."""
+    try:
+        return json.loads(payload)
+    except (json.JSONDecodeError, TypeError):
+        return fallback
+
+def recursive_map(func: Callable, target: Any) -> Any:
+    """Deep recursive traversal for arbitrary data manipulation."""
+    if isinstance(target, dict):
+        return {k: recursive_map(func, v) for k, v in target.items()}
+    if isinstance(target, list):
+        return [recursive_map(func, i) for i in target]
+    return func(target)
