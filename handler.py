@@ -1,29 +1,39 @@
-from typing import Any, Dict, Callable, Optional
+import json
+from typing import Any, Dict, Union
+from functools import reduce
 
-class CommandHandler:
-    """Dynamic command execution dispatcher for cli-helper-26."""
+def traverse_deep(data: Dict[str, Any], path: str, default: Any = None) -> Any:
+    """navigates nested structures using dot-notation keys"""
+    try:
+        return reduce(lambda d, k: d.get(k, {}), path.split('.'), data)
+    except AttributeError:
+        return default
 
-    def __init__(self) -> None:
-        self._registry: Dict[str, Callable[[Any], Any]] = {}
+class DataMorph:
+    """fluid transformations for nested dictionary objects"""
+    def __init__(self, payload: Union[dict, str]):
+        self.data = json.loads(payload) if isinstance(payload, str) else payload
 
-    def register(self, name: str, func: Callable[[Any], Any]) -> None:
-        """Register a function under a specific command key."""
-        self._registry[name] = func
+    def pluck(self, key_path: str) -> Any:
+        return traverse_deep(self.data, key_path)
 
-    def execute(self, name: str, data: Any = None) -> Optional[Any]:
-        """Invoke registered command or return None if missing."""
-        action = self._registry.get(name)
-        if action:
-            return action(data)
-        return None
+    def flatten(self, parent_key='', sep='_'):
+        items = []
+        for k, v in self.data.items():
+            new_key = f"{parent_key}{sep}{k}" if parent_key else k
+            if isinstance(v, dict):
+                items.extend(DataMorph(v).flatten(new_key, sep=sep).items())
+            else:
+                items.append((new_key, v))
+        return dict(items)
 
-    def list_commands(self) -> list[str]:
-        """Return available registered commands."""
-        return list(self._registry.keys())
+    def mutate(self, key_path: str, func: callable) -> 'DataMorph':
+        keys = key_path.split('.')
+        target = self.data
+        for k in keys[:-1]:
+            target = target.setdefault(k, {})
+        target[keys[-1]] = func(target.get(keys[-1]))
+        return self
 
-    def __call__(self, name: str, *args: Any, **kwargs: Any) -> Any:
-        """Syntactic sugar for handler.execute."""
-        cmd = self._registry.get(name)
-        if callable(cmd):
-            return cmd(*args, **kwargs)
-        raise ValueError(f"Command '{name}' is not registered.")
+    def export(self) -> str:
+        return json.dumps(self.data)
