@@ -1,39 +1,36 @@
-import json
-from typing import Any, Dict, Union
-from functools import reduce
+import sys
+import signal
+from typing import Callable, Any, Dict
 
-def traverse_deep(data: Dict[str, Any], path: str, default: Any = None) -> Any:
-    """navigates nested structures using dot-notation keys"""
-    try:
-        return reduce(lambda d, k: d.get(k, {}), path.split('.'), data)
-    except AttributeError:
-        return default
+class ExecutionPipeline:
+    def __init__(self):
+        self._tasks: Dict[str, Callable] = {}
+        signal.signal(signal.SIGINT, self._handle_exit)
 
-class DataMorph:
-    """fluid transformations for nested dictionary objects"""
-    def __init__(self, payload: Union[dict, str]):
-        self.data = json.loads(payload) if isinstance(payload, str) else payload
+    def register(self, name: str, func: Callable):
+        self._tasks[name] = func
 
-    def pluck(self, key_path: str) -> Any:
-        return traverse_deep(self.data, key_path)
+    def run(self, name: str, *args, **kwargs) -> Any:
+        if name not in self._tasks:
+            raise ValueError(f'task {name} not registered')
+        return self._tasks[name](*args, **kwargs)
 
-    def flatten(self, parent_key='', sep='_'):
-        items = []
-        for k, v in self.data.items():
-            new_key = f"{parent_key}{sep}{k}" if parent_key else k
-            if isinstance(v, dict):
-                items.extend(DataMorph(v).flatten(new_key, sep=sep).items())
-            else:
-                items.append((new_key, v))
-        return dict(items)
+    def _handle_exit(self, signum, frame):
+        sys.exit(0)
 
-    def mutate(self, key_path: str, func: callable) -> 'DataMorph':
-        keys = key_path.split('.')
-        target = self.data
-        for k in keys[:-1]:
-            target = target.setdefault(k, {})
-        target[keys[-1]] = func(target.get(keys[-1]))
-        return self
+class StreamProcessor(ExecutionPipeline):
+    def process(self, data: str):
+        return ''.join(reversed(data)).upper()
 
-    def export(self) -> str:
-        return json.dumps(self.data)
+def cleanup_stream(data: str):
+    return data.strip().replace('\n', ' ')
+
+if __name__ == '__main__':
+    handler = StreamProcessor()
+    handler.register('clean', cleanup_stream)
+    handler.register('reverse', handler.process)
+    
+    payload = '  cli-helper-26  \n'
+    cleaned = handler.run('clean', payload)
+    result = handler.run('reverse', cleaned)
+    sys.stdout.write(f'processed: {result}\n')
