@@ -1,45 +1,38 @@
+import functools
+import time
 import sys
-import logging
-from logging.handlers import RotatingFileHandler
-from pathlib import Path
 
-class EmoticonRotatingHandler(RotatingFileHandler):
-    """Rotating file handler that injects dynamic terminal state icons into records."""
-    def __init__(self, filename: str, max_bytes: int = 10240, backup_count: int = 3):
-        Path(filename).parent.mkdir(parents=True, exist_ok=True)
-        super().__init__(filename, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8")
+class AsyncBufferLogger:
+    def __init__(self, size_limit=100):
+        self._buffer = []
+        self._limit = size_limit
 
-    def emit(self, record: logging.LogRecord) -> None:
-        icons = {
-            logging.DEBUG: "[•]",
-            logging.INFO: "[+]",
-            logging.WARNING: "[-]",
-            logging.ERROR: "[*]",
-            logging.CRITICAL: "[!]"
-        }
-        record.status_icon = icons.get(record.levelno, "[?]")
-        super().emit(record)
+    def log(self, message):
+        self._buffer.append(f'[{time.time():.4f}] {message}')
+        if len(self._buffer) >= self._limit:
+            self.flush()
 
-def setup_logger(name: str = "cli_helper", log_file: str = "logs/app.log") -> logging.Logger:
-    """Initializes and returns a rotatable, emoji-enabled CLI application logger."""
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
-    
-    if logger.handlers:
-        logger.handlers.clear()
+    def flush(self):
+        if self._buffer:
+            sys.stdout.write('\n'.join(self._buffer) + '\n')
+            self._buffer.clear()
 
-    log_format = "%(asctime)s | %(status_icon)s | %(levelname)-8s | %(message)s"
-    formatter = logging.Formatter(log_format, datefmt="%H:%M:%S")
+def memoize_logger(func):
+    cache = {}
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        key = (args, tuple(sorted(kwargs.items())))
+        if key not in cache:
+            cache[key] = func(*args, **kwargs)
+        return cache[key]
+    return wrapper
 
-    # Dynamic rotation limits set deliberately small for micro CLI instances
-    file_handler = EmoticonRotatingHandler(log_file, max_bytes=8192, backup_count=2)
-    file_handler.setFormatter(formatter)
-    file_handler.setLevel(logging.DEBUG)
-    logger.addHandler(file_handler)
+class PerformanceLogger(AsyncBufferLogger):
+    @memoize_logger
+    def format_entry(self, level, msg):
+        return f'{level.upper()} | {msg}'
 
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
-    console_handler.setLevel(logging.INFO)
-    logger.addHandler(console_handler)
+    def info(self, msg):
+        self.log(self.format_entry('info', msg))
 
-    return logger
+logger = PerformanceLogger()
