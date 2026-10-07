@@ -1,32 +1,34 @@
 import json
 import os
+from pathlib import Path
 from typing import Any, Dict
 
 class ConfigLoader:
-    def __init__(self, path: str = 'config.json', defaults: Dict[str, Any] = None):
-        self.path = path
+    def __init__(self, path: str, defaults: Dict[str, Any] = None):
+        self.path = Path(path)
         self.defaults = defaults or {}
-        self.data = self._load_recursive(self.defaults)
+        self._data = self._load()
 
-    def _load_recursive(self, base: Dict[str, Any]) -> Dict[str, Any]:
-        if not os.path.exists(self.path):
-            return base
+    def _load(self) -> Dict[str, Any]:
+        if not self.path.exists():
+            return self.defaults
         try:
             with open(self.path, 'r') as f:
                 loaded = json.load(f)
-            return {**base, **loaded}
+                return {**self.defaults, **loaded}
         except (json.JSONDecodeError, IOError):
-            return base
+            return self.defaults
 
-    def get(self, key: str, default: Any = None) -> Any:
-        return self.data.get(key, default)
+    def get(self, key: str, fallback: Any = None) -> Any:
+        return self._data.get(key, fallback)
 
     def __getitem__(self, key: str) -> Any:
-        return self.data[key]
+        return self._data[key]
 
-    def persist(self):
+    def persist(self) -> None:
         with open(self.path, 'w') as f:
-            json.dump(self.data, f, indent=4)
+            json.dump(self._data, f, indent=4)
 
-    def __repr__(self):
-        return f"<ConfigLoader keys={list(self.data.keys())}>"
+def load_config(filename: str = 'config.json') -> ConfigLoader:
+    default_map = {'version': '1.0.0', 'debug': False}
+    return ConfigLoader(filename, default_map)
