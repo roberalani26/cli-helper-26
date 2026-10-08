@@ -1,48 +1,36 @@
-import sys
-import os
-import time
-from typing import Callable, Any, TypeVar
+from typing import Any, Callable, Dict, List, Union
+import functools
 
-T = TypeVar("T")
+def cast_stream(data: Any, schema: Dict[str, type]) -> Dict[str, Any]:
+    """Transforms raw input into typed dictionaries via type hinting schema."""
+    processed = {}
+    for key, target_type in schema.items():
+        val = getattr(data, key, None) if not isinstance(data, dict) else data.get(key)
+        try:
+            processed[key] = target_type(val) if val is not None else None
+        except (ValueError, TypeError):
+            processed[key] = None
+    return processed
 
-class Pipe:
-    """Unusual bitwise-pipe wrapper for CLI string manipulation chains."""
-    def __init__(self, value: Any):
-        self.value = str(value)
+def compose_pipeline(*functions: Callable) -> Callable:
+    """Functional pipeline builder for lazy evaluation sequences."""
+    def _pipe(data: Any):
+        return functools.reduce(lambda v, f: f(v), functions, data)
+    return _pipe
 
-    def __or__(self, func: Callable[[str], str]) -> "Pipe":
-        return Pipe(func(self.value))
+class DataVault:
+    """Memory-efficient dictionary wrapper with attribute access."""
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
 
-    def __repr__(self) -> str:
-        return self.value
+    def __repr__(self):
+        return f"Vault({self.__dict__})"
 
-    def emit(self, stream=sys.stdout) -> None:
-        stream.write(self.value + "\n")
-
-def ansi_style(fg: int = 37, bg: int = 40, bold: bool = False) -> Callable[[str], str]:
-    style = f"\033[{1 if bold else 0};{fg};{bg}m"
-    return lambda text: f"{style}{text}\033[0m"
-
-def wrap_box(title: str = "") -> Callable[[str], str]:
-    def _box(text: str) -> str:
-        lines = text.splitlines() or [""]
-        w = max(max((len(line) for line in lines), default=0), len(title) + 2)
-        header = f"┌─ {title} ─{'─' * (w - len(title) - 4)}┐" if title else f"┌{'─' * (w + 2)}┐"
-        footer = f"└{'─' * (w + 2)}┘"
-        content = "\n".join(f"│ {line.ljust(w)} │" for line in lines)
-        return f"{header}\n{content}\n{footer}"
-    return _box
-
-def clip_text(limit: int = 80, pad: str = "...") -> Callable[[str], str]:
-    return lambda t: t if len(t) <= limit else t[:limit - len(pad)] + pad
-
-def timed_run(action_name: str = "operation") -> Callable:
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        def wrapper(*args: Any, **kwargs: Any) -> T:
-            start = time.perf_counter()
-            result = func(*args, **kwargs)
-            elapsed = (time.perf_counter() - start) * 1000
-            sys.stderr.write(f"[{action_name}] completed in {elapsed:.2f}ms\n")
-            return result
-        return wrapper
-    return decorator
+def flatten_nested(obj: Union[List, Dict], parent_key: str = '', sep: str = '_') -> Dict:
+    """Recursive key flattening for complex nested structures."""
+    items = []
+    for k, v in obj.items() if isinstance(obj, dict) else enumerate(obj):
+        new_key = f"{parent_key}{sep}{k}" if parent_key else str(k)
+        if isinstance(v, (dict, list)): items.extend(flatten_nested(v, new_key, sep=sep).items())
+        else: items.append((new_key, v))
+    return dict(items)
