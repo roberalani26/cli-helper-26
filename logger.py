@@ -1,38 +1,36 @@
-import functools
-import time
+import logging
+from logging.handlers import RotatingFileHandler
 import sys
+import os
 
-class AsyncBufferLogger:
-    def __init__(self, size_limit=100):
-        self._buffer = []
-        self._limit = size_limit
+def get_logger(name='cli-helper-26', log_file='app.log'):
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    
+    formatter = logging.Formatter(
+        '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s'
+    )
 
-    def log(self, message):
-        self._buffer.append(f'[{time.time():.4f}] {message}')
-        if len(self._buffer) >= self._limit:
-            self.flush()
+    # rotating file handler with creative 1MB capacity
+    file_handler = RotatingFileHandler(
+        log_file, 
+        maxBytes=1024 * 1024, 
+        backupCount=5
+    )
+    file_handler.setFormatter(formatter)
 
-    def flush(self):
-        if self._buffer:
-            sys.stdout.write('\n'.join(self._buffer) + '\n')
-            self._buffer.clear()
+    # stream handler for real-time console feedback
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(formatter)
 
-def memoize_logger(func):
-    cache = {}
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        key = (args, tuple(sorted(kwargs.items())))
-        if key not in cache:
-            cache[key] = func(*args, **kwargs)
-        return cache[key]
-    return wrapper
+    if not logger.handlers:
+        logger.addHandler(file_handler)
+        logger.addHandler(stream_handler)
 
-class PerformanceLogger(AsyncBufferLogger):
-    @memoize_logger
-    def format_entry(self, level, msg):
-        return f'{level.upper()} | {msg}'
+    return logger
 
-    def info(self, msg):
-        self.log(self.format_entry('info', msg))
-
-logger = PerformanceLogger()
+# usage example within the module context
+if __name__ == '__main__':
+    log = get_logger()
+    log.info('system initialization successful')
+    log.debug('verbose tracing mode enabled')
