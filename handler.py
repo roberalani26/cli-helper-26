@@ -1,36 +1,53 @@
 import sys
-import signal
-from typing import Callable, Any, Dict
+from typing import Callable, Any, Generator, Iterable
 
-class ExecutionPipeline:
-    def __init__(self):
-        self._tasks: Dict[str, Callable] = {}
-        signal.signal(signal.SIGINT, self._handle_exit)
+class ValidationPipe:
+    def __init__(self, *rules: Callable[[str], tuple[bool, Any]]):
+        self.rules = rules
 
-    def register(self, name: str, func: Callable):
-        self._tasks[name] = func
+    def __rshift__(self, next_rule: Callable[[str], tuple[bool, Any]]) -> "ValidationPipe":
+        return ValidationPipe(*self.rules, next_rule)
 
-    def run(self, name: str, *args, **kwargs) -> Any:
-        if name not in self._tasks:
-            raise ValueError(f'task {name} not registered')
-        return self._tasks[name](*args, **kwargs)
+    def validate(self, raw_input: str) -> tuple[bool, Any, str]:
+        current = raw_input.strip()
+        for rule in self.rules:
+            ok, current = rule(current)
+            if not ok:
+                return False, None, f"Rule '{rule.__name__}' failed for input: {raw_input!r}"
+        return True, current, "OK"
 
-    def _handle_exit(self, signum, frame):
-        sys.exit(0)
+def rule_non_empty(val: str) -> tuple[bool, Any]:
+    return (bool(val), val)
 
-class StreamProcessor(ExecutionPipeline):
-    def process(self, data: str):
-        return ''.join(reversed(data)).upper()
+def rule_sanitize_sql(val: str) -> tuple[bool, Any]:
+    forbidden = {";", "--", "DROP", "DELETE"}
+    has_bad_str = any(cmd in val.upper() for cmd in forbidden)
+    return (not has_bad_str, val)
 
-def cleanup_stream(data: str):
-    return data.strip().replace('\n', ' ')
+def rule_coerce_numeric(val: str) -> tuple[bool, Any]:
+    if val.isdigit():
+        return True, int(val)
+    try:
+        return True, float(val)
+    except ValueError:
+        return True, val
 
-if __name__ == '__main__':
-    handler = StreamProcessor()
-    handler.register('clean', cleanup_stream)
-    handler.register('reverse', handler.process)
+def main_processing_loop(stream: Iterable[str] = sys.stdin) -> Generator[Any, None, None]:
+    pipeline = ValidationPipe(rule_non_empty) >> rule_sanitize_sql >> rule_coerce_numeric
     
-    payload = '  cli-helper-26  \n'
-    cleaned = handler.run('clean', payload)
-    result = handler.run('reverse', cleaned)
-    sys.stdout.write(f'processed: {result}\n')
+    for line in stream:
+        raw_str = line.rstrip("\r\n")
+        if raw_str.lower() in ("exit", "quit"):
+            break
+            
+        is_valid, processed_val, error_msg = pipeline.validate(raw_str)
+        if not is_valid:
+            sys.stderr.write(f"[INVALID INPUT] {error_msg}\n")
+            continue
+            
+        yield processed_val
+
+if __name__ == "__main__":
+    mock_stream = ["hello world", "", "42", "3.1415", "SELECT * FROM users; DROP TABLE users;", "exit"]
+    for item in main_processing_loop(mock_stream):
+        print(f"Valid output: {item!r} ({type(item).__name__})")
