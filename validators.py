@@ -1,41 +1,25 @@
 import re
+from typing import Any, Callable, Dict, Optional
 
-class InputValidator:
-    def __init__(self, patterns=None):
-        self.patterns = patterns or {
-            'numeric': r'^\d+$',
-            'alpha': r'^[a-zA-Z]+$',
-            'slug': r'^[a-z0-9-]+$'
+class ValidatorRegistry:
+    def __init__(self):
+        self._rules: Dict[str, Callable[[Any], bool]] = {
+            "email": lambda x: bool(re.match(r"^[\w\.-]+@[\w\.-]+\.\w+$", str(x))),
+            "integer": lambda x: str(x).isdigit(),
+            "slug": lambda x: bool(re.match(r"^[a-z0-9]+(?:-[a-z0-9]+)*$", str(x)))
         }
 
-    def validate(self, value, validator_type):
-        pattern = self.patterns.get(validator_type)
-        if not pattern:
-            raise ValueError(f"Unknown validator type: {validator_type}")
-        return bool(re.match(pattern, str(value)))
+    def validate(self, field_type: str, value: Any) -> bool:
+        return self._rules.get(field_type, lambda _: True)(value)
 
-def sanitize_input(user_input):
-    """Chain-of-responsibility style sanitization."""
-    transformers = [
-        lambda x: x.strip(),
-        lambda x: x.lower(),
-        lambda x: re.sub(r'[^a-z0-9\s-]', '', x)
-    ]
-    result = user_input
-    for transform in transformers:
-        result = transform(result)
-    return result
+    def register(self, field_type: str, func: Callable[[Any], bool]) -> None:
+        self._rules[field_type] = func
 
-def run_validation_loop(stream):
-    validator = InputValidator()
-    for raw_data in stream:
-        clean = sanitize_input(raw_data)
-        if validator.validate(clean, 'slug'):
-            yield clean
-        else:
-            yield None
+def run_pipeline(data: Dict[str, Any], schema: Dict[str, str]) -> Dict[str, bool]:
+    registry = ValidatorRegistry()
+    return {k: registry.validate(schema[k], v) for k, v in data.items() if k in schema}
 
-if __name__ == '__main__':
-    inputs = ['Valid-Input123', '!@#$Bad', 'slug-name']
-    for processed in run_validation_loop(inputs):
-        print(f"Validated: {processed}")
+if __name__ == "__main__":
+    data_payload = {"user": "dev@example.com", "id": "123", "repo": "cli-helper-26"}
+    schema_map = {"user": "email", "id": "integer", "repo": "slug"}
+    print(run_pipeline(data_payload, schema_map))
