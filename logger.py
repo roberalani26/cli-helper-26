@@ -1,36 +1,35 @@
-import logging
-from logging.handlers import RotatingFileHandler
 import sys
-import os
+import logging
+from datetime import datetime
 
-def get_logger(name='cli-helper-26', log_file='app.log'):
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
-    
-    formatter = logging.Formatter(
-        '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s'
-    )
+class CliLogger:
+    _instances = {}
 
-    # rotating file handler with creative 1MB capacity
-    file_handler = RotatingFileHandler(
-        log_file, 
-        maxBytes=1024 * 1024, 
-        backupCount=5
-    )
-    file_handler.setFormatter(formatter)
+    def __new__(cls, name='cli-helper-26'):
+        if name not in cls._instances:
+            instance = super().__new__(cls)
+            instance._setup(name)
+            cls._instances[name] = instance
+        return cls._instances[name]
 
-    # stream handler for real-time console feedback
-    stream_handler = logging.StreamHandler(sys.stdout)
-    stream_handler.setFormatter(formatter)
+    def _setup(self, name):
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(logging.DEBUG)
+        formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
+        
+        sh = logging.StreamHandler(sys.stdout)
+        sh.setFormatter(formatter)
+        self.logger.addHandler(sh)
 
-    if not logger.handlers:
-        logger.addHandler(file_handler)
-        logger.addHandler(stream_handler)
+    def info(self, msg):
+        self.logger.info(f"{self._get_timestamp()} - {msg}")
 
-    return logger
+    def error(self, msg):
+        self.logger.error(f"{self._get_timestamp()} - {msg}")
 
-# usage example within the module context
-if __name__ == '__main__':
-    log = get_logger()
-    log.info('system initialization successful')
-    log.debug('verbose tracing mode enabled')
+    @staticmethod
+    def _get_timestamp():
+        return datetime.now().strftime("%H:%M:%S")
+
+def get_logger(name='cli-helper-26'):
+    return CliLogger(name)
