@@ -1,40 +1,47 @@
-import re
-from typing import Callable, Tuple
+import time
+import functools
+from typing import Callable, Any, Dict
 
-class ValidationChain:
-    def __init__(self, *rules: Callable[[str], bool | str]):
-        self.rules = rules
+def time_execution(func: Callable) -> Callable:
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        print(f"[DEBUG] {func.__name__} executed in {time.perf_counter() - start:.4f}s")
+        return result
+    return wrapper
 
-    def __rshift__(self, other: Callable[[str], bool | str]) -> "ValidationChain":
-        return ValidationChain(*self.rules, other)
+def memoize_with_expiry(ttl: int = 300):
+    def decorator(func: Callable):
+        cache: Dict[tuple, tuple] = {}
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, tuple(sorted(kwargs.items())))
+            now = time.time()
+            if key in cache and now - cache[key][1] < ttl:
+                return cache[key][0]
+            result = func(*args, **kwargs)
+            cache[key] = (result, now)
+            return result
+        return wrapper
+    return decorator
 
-    def validate(self, payload: str) -> Tuple[bool, str]:
-        for rule in self.rules:
-            res = rule(payload)
-            if res is not True:
-                reason = res if isinstance(res, str) else getattr(rule, "__name__", "anonymous_rule")
-                return False, f"Rule failed: {reason}"
-        return True, "Valid"
+class ChainBuilder:
+    def __init__(self, value: Any):
+        self.value = value
+    
+    def pipe(self, func: Callable, *args, **kwargs) -> 'ChainBuilder':
+        self.value = func(self.value, *args, **kwargs)
+        return self
+    
+    def get(self) -> Any:
+        return self.value
 
-is_non_empty = lambda s: len(s.strip()) > 0 or "Input cannot be empty"
-is_safe_chars = lambda s: bool(re.match(r"^[a-zA-Z0-9_\-\s\.]+$", s)) or "Contains forbidden characters"
-within_length = lambda s: len(s) <= 64 or "Exceeds maximum length of 64"
-no_reserved = lambda s: s.strip().lower() not in {"exit", "quit", "root"} or "Reserved keyword"
-
-PIPELINE = ValidationChain() >> is_non_empty >> is_safe_chars >> within_length >> no_reserved
-
-def run_loop(stream: list[str]) -> list[str]:
-    results = []
-    for line in stream:
-        is_valid, err = PIPELINE.validate(line)
-        if not is_valid:
-            results.append(f"SKIP ({err}): {line!r}")
-            continue
-        cleaned = line.strip().lower()
-        results.append(f"PROCESSED: {cleaned}")
-    return results
-
-if __name__ == "__main__":
-    test_stream = ["", "valid_cmd", "bad;cmd", "root", "a" * 100]
-    for out in run_loop(test_stream):
-        print(out)
+def flatten(nested: list) -> list:
+    flat = []
+    for item in nested:
+        if isinstance(item, list):
+            flat.extend(flatten(item))
+        else:
+            flat.append(item)
+    return flat
