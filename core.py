@@ -1,47 +1,58 @@
-import time
-import functools
-from typing import Callable, Any, Dict
+import sys
+from functools import lru_cache
+from typing import Callable, Any, Dict, Tuple, Optional
 
-def time_execution(func: Callable) -> Callable:
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        start = time.perf_counter()
-        result = func(*args, **kwargs)
-        print(f"[DEBUG] {func.__name__} executed in {time.perf_counter() - start:.4f}s")
-        return result
-    return wrapper
 
-def memoize_with_expiry(ttl: int = 300):
-    def decorator(func: Callable):
-        cache: Dict[tuple, tuple] = {}
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            key = (args, tuple(sorted(kwargs.items())))
-            now = time.time()
-            if key in cache and now - cache[key][1] < ttl:
-                return cache[key][0]
-            result = func(*args, **kwargs)
-            cache[key] = (result, now)
-            return result
+class CoreEngine:
+    """Optimized execution core using string interning and token-trie dispatching."""
+    __slots__ = ('_tree', '_exec_count')
+
+    def __init__(self) -> None:
+        self._tree: Dict[str, Any] = {}
+        self._exec_count: int = 0
+
+    def register(self, route: str) -> Callable:
+        """Registers a handler for a fast-path CLI route."""
+        def wrapper(func: Callable) -> Callable:
+            tokens = tuple(sys.intern(part) for part in route.strip().split())
+            node = self._tree
+            for token in tokens:
+                node = node.setdefault(token, {})
+            node['$'] = func
+            self._resolve.cache_clear()
+            return func
         return wrapper
-    return decorator
 
-class ChainBuilder:
-    def __init__(self, value: Any):
-        self.value = value
-    
-    def pipe(self, func: Callable, *args, **kwargs) -> 'ChainBuilder':
-        self.value = func(self.value, *args, **kwargs)
-        return self
-    
-    def get(self) -> Any:
-        return self.value
+    @lru_cache(maxsize=2048)
+    def _resolve(self, tokens: Tuple[str, ...]) -> Tuple[Callable, Tuple[str, ...]]:
+        node = self._tree
+        idx = 0
+        last_func: Optional[Callable] = None
+        last_idx = 0
 
-def flatten(nested: list) -> list:
-    flat = []
-    for item in nested:
-        if isinstance(item, list):
-            flat.extend(flatten(item))
-        else:
-            flat.append(item)
-    return flat
+        for token in tokens:
+            token_interned = sys.intern(token)
+            if token_interned in node:
+                node = node[token_interned]
+                idx += 1
+                if '$' in node:
+                    last_func = node['$']
+                    last_idx = idx
+            else:
+                break
+
+        if last_func is not None:
+            return last_func, tokens[last_idx:]
+        raise ValueError(f"Unknown command sequence: {' '.join(tokens)}")
+
+    def run(self, raw_input: str) -> Any:
+        """Parse and execute a raw command string at high throughput."""
+        tokens = tuple(raw_input.strip().split())
+        if not tokens:
+            return None
+        self._exec_count += 1
+        handler, leftover = self._resolve(tokens)
+        return handler(*leftover)
+
+
+engine = CoreEngine()
