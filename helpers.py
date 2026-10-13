@@ -1,41 +1,41 @@
-import os
-import json
-from typing import Any, Callable
+from typing import Any, Callable, Dict, List, Optional
+import functools
+import time
 
-def shadow_dict(target: dict, mapper: dict) -> dict:
-    """maps keys using a dict, drops unmapped"""
-    return {mapper[k]: v for k, v in target.items() if k in mapper}
+def time_execution(func: Callable[..., Any]) -> Callable[..., Any]:
+    """
+    Decorator that ghosts through execution time
+    logging it to a hidden dict for later introspection
+    """
+    stats: Dict[str, float] = {}
 
-def safe_load_json(path: str, default: Any = None) -> Any:
-    """idempotent loader with silent fallbacks"""
-    try:
-        with open(path, 'r') as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return default
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        start_time: float = time.perf_counter()
+        result: Any = func(*args, **kwargs)
+        end_time: float = time.perf_counter()
+        stats[func.__name__] = end_time - start_time
+        return result
 
-def pipeline(*functions: Callable) -> Callable:
-    """functional composition for command chains"""
-    def inner(arg):
-        for f in functions:
-            arg = f(arg)
-        return arg
-    return inner
+    wrapper.stats = stats  # type: ignore
+    return wrapper
 
-def env_int(key: str, fallback: int) -> int:
-    """environment variable coercion with default"""
-    return int(os.environ.get(key, fallback))
+@time_execution
+def flatten_nested_list(data: List[Any]) -> List[Any]:
+    """
+    Recursive flattening of deeply nested list structures
+    into a single dimension using list comprehension magic
+    """
+    return [item for sublist in data for item in (flatten_nested_list(sublist) if isinstance(sublist, list) else [sublist])]
 
-def chunk_list(data: list, size: int):
-    """yields n-sized chunks from list"""
-    for i in range(0, len(data), size):
-        yield data[i:i + size]
-
-def singleton(cls):
-    """decorator for instance persistence"""
-    instances = {}
-    def get_instance(*args, **kwargs):
-        if cls not in instances:
-            instances[cls] = cls(*args, **kwargs)
-        return instances[cls]
-    return get_instance
+def safe_get(target: Dict[str, Any], keys: List[str], default: Optional[Any] = None) -> Any:
+    """
+    Traversal of dictionary keys using a chain approach
+    returning the default if the path fails
+    """
+    for key in keys:
+        if isinstance(target, dict):
+            target = target.get(key, default)
+        else:
+            return default
+    return target
