@@ -1,57 +1,52 @@
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
 # cli-helper-26
 
-`cli-helper-26` is a lightweight Python library designed to streamline the creation of interactive command-line tools. It automates argument parsing, provides rich terminal formatting, and manages persistent user configurations with zero boilerplate.
+`cli-helper-26` is a lightweight Python utility library designed to streamline the creation of robust command-line interfaces. It abstracts complex argument parsing and provides standardized formatting for console output to help developers build professional tools faster.
 
 ## Features
 
-- **Declarative Command Routing:** Define CLI options and subcommands directly using Python type hints and decorators.
-- **Rich Terminal Formatting:** Built-in support for ANSI colors, progress bars, spin indicators, and structured table outputs.
-- **Session State Management:** Read and write JSON or YAML configuration files automatically across execution cycles.
-- **Interactive Prompts:** Collect user input with built-in validation, secure password masking, and fuzzy-search selection menus.
+*   **Decorator-based Routing:** Map CLI commands to functions effortlessly using intuitive Python decorators.
+*   **Automatic Help Generation:** Dynamically generates clean, readable help documentation based on function docstrings and type hints.
+*   **Built-in Color Support:** Integrated logging utilities that provide semantic, ANSI-colored output for info, warning, and error states.
+*   **Zero-Dependency Core:** Built using standard library modules to ensure a minimal footprint and maximum compatibility.
 
 ## Installation
 
-Install the package directly from PyPI using `pip`:
+Install the package directly via pip:
 
 ```bash
 pip install cli-helper-26
 ```
 
-Or install the latest development version via Git:
+If you are working within a virtual environment, ensure it is activated before running the command.
 
-```bash
-pip install git+https://github.com/Developer/cli-helper-26.git
-```
+## Usage
 
-## Quick Start
-
-Create a script named `app.py`:
+Define your CLI tools by decorating your entry functions. The helper will automatically handle command execution and argument mapping.
 
 ```python
-from cli_helper_26 import CLIApp, command, prompt
+from cli_helper import CLI
 
-app = CLIApp(name="task-runner")
+app = CLI()
 
-@command(help="Initialize a new project environment")
-def init(env_name: str, verbose: bool = False):
-    if verbose:
-        app.log.info(f"Setting up environment: {env_name}")
-    
-    role = prompt.select("Select primary role:", ["developer", "tester", "admin"])
-    app.print(f"Successfully initialized {env_name} for {role}!", style="green")
+@app.command()
+def greet(name: str, shout: bool = False):
+    """Greets the user by name."""
+    msg = f"Hello, {name}!"
+    print(msg.upper() if shout else msg)
 
 if __name__ == "__main__":
     app.run()
 ```
 
-Run the command in your terminal:
+Run your script from the terminal:
 
 ```bash
-python app.py init my-project --verbose
+python main.py greet --name "Developer" --shout
+# Output: HELLO, DEVELOPER!
 ```
 
 ## License
 
-Distributed under the MIT License. See `LICENSE` for details.
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
