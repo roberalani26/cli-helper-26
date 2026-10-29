@@ -1,31 +1,35 @@
-import time
 import functools
-import random
+from typing import Any, Callable, Iterable, Union
 
-def resilient(max_attempts=3, delay=1.0, backoff=2.0):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            attempts = 0
-            current_delay = delay
-            while attempts < max_attempts:
-                try:
-                    return func(*args, **kwargs)
-                except (ConnectionError, TimeoutError) as e:
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        raise e
-                    time.sleep(current_delay + random.uniform(0, 0.1))
-                    current_delay *= backoff
-        return wrapper
-    return decorator
+def pipe(data: Any, *funcs: Callable) -> Any:
+    return functools.reduce(lambda v, f: f(v), funcs, data)
 
-@resilient(max_attempts=4, delay=0.5)
-def fetch_network_resource(url):
-    # Simulate sporadic network instability
-    if random.random() < 0.7:
-        raise ConnectionError(f"Failed to reach {url}")
-    return f"Payload from {url}"
+def sanitize(data: Any) -> Any:
+    if isinstance(data, dict):
+        return {str(k): sanitize(v) for k, v in data.items()}
+    if isinstance(data, (list, tuple, set)):
+        return [sanitize(i) for i in data]
+    if data is None:
+        return ""
+    return data
 
-if __name__ == "__main__":
-    print(fetch_network_resource("https://api.example.com"))
+def deep_flatten(items: Iterable) -> list:
+    flat = []
+    for item in items:
+        if isinstance(item, (list, tuple)):
+            flat.extend(deep_flatten(item))
+        else:
+            flat.append(item)
+    return flat
+
+def batch_process(data: list, size: int = 10) -> Iterable:
+    for i in range(0, len(data), size):
+        yield data[i:i + size]
+
+def smart_transform(data: Any, transform_map: dict) -> Any:
+    def _apply(val):
+        for key, func in transform_map.items():
+            if isinstance(val, key):
+                return func(val)
+        return val
+    return _apply(data)
