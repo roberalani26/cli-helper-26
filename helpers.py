@@ -1,41 +1,26 @@
-from typing import Any, Callable, Dict, List, Optional
-import functools
 import time
+import functools
+import random
 
-def time_execution(func: Callable[..., Any]) -> Callable[..., Any]:
-    """
-    Decorator that ghosts through execution time
-    logging it to a hidden dict for later introspection
-    """
-    stats: Dict[str, float] = {}
+def retry(max_attempts=3, backoff_factor=1.0):
+    """Decorator applying exponential backoff to network functions."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            while attempts < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    attempts += 1
+                    if attempts == max_attempts:
+                        raise e
+                    sleep_time = (backoff_factor * (2 ** (attempts - 1))) + (random.uniform(0, 0.1))
+                    time.sleep(sleep_time)
+        return wrapper
+    return decorator
 
-    @functools.wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        start_time: float = time.perf_counter()
-        result: Any = func(*args, **kwargs)
-        end_time: float = time.perf_counter()
-        stats[func.__name__] = end_time - start_time
-        return result
-
-    wrapper.stats = stats  # type: ignore
-    return wrapper
-
-@time_execution
-def flatten_nested_list(data: List[Any]) -> List[Any]:
-    """
-    Recursive flattening of deeply nested list structures
-    into a single dimension using list comprehension magic
-    """
-    return [item for sublist in data for item in (flatten_nested_list(sublist) if isinstance(sublist, list) else [sublist])]
-
-def safe_get(target: Dict[str, Any], keys: List[str], default: Optional[Any] = None) -> Any:
-    """
-    Traversal of dictionary keys using a chain approach
-    returning the default if the path fails
-    """
-    for key in keys:
-        if isinstance(target, dict):
-            target = target.get(key, default)
-        else:
-            return default
-    return target
+def perform_network_call(func, *args, **kwargs):
+    """Functional alternative to the retry decorator."""
+    retry_wrapper = retry(max_attempts=3)(func)
+    return retry_wrapper(*args, **kwargs)
