@@ -1,53 +1,48 @@
 import sys
-from typing import Callable, Any, Generator, Iterable
+from dataclasses import dataclass
+from typing import Any, Callable, Dict
 
-class ValidationPipe:
-    def __init__(self, *rules: Callable[[str], tuple[bool, Any]]):
-        self.rules = rules
+@dataclass
+class CommandHandler:
+    registry: Dict[str, Callable] = None
 
-    def __rshift__(self, next_rule: Callable[[str], tuple[bool, Any]]) -> "ValidationPipe":
-        return ValidationPipe(*self.rules, next_rule)
+    def __post_init__(self):
+        self.registry = {}
 
-    def validate(self, raw_input: str) -> tuple[bool, Any, str]:
-        current = raw_input.strip()
-        for rule in self.rules:
-            ok, current = rule(current)
-            if not ok:
-                return False, None, f"Rule '{rule.__name__}' failed for input: {raw_input!r}"
-        return True, current, "OK"
+    def register(self, name: str):
+        def decorator(func: Callable):
+            self.registry[name] = func
+            return func
+        return decorator
 
-def rule_non_empty(val: str) -> tuple[bool, Any]:
-    return (bool(val), val)
+    def execute(self, cmd: str, *args, **kwargs) -> Any:
+        func = self.registry.get(cmd)
+        if not func:
+            raise ValueError(f"unknown command: {cmd}")
+        return func(*args, **kwargs)
 
-def rule_sanitize_sql(val: str) -> tuple[bool, Any]:
-    forbidden = {";", "--", "DROP", "DELETE"}
-    has_bad_str = any(cmd in val.upper() for cmd in forbidden)
-    return (not has_bad_str, val)
+    @classmethod
+    def bootstrap(cls, commands: Dict[str, Callable]):
+        instance = cls()
+        instance.registry.update(commands)
+        return instance
 
-def rule_coerce_numeric(val: str) -> tuple[bool, Any]:
-    if val.isdigit():
-        return True, int(val)
-    try:
-        return True, float(val)
-    except ValueError:
-        return True, val
+def graceful_exit(code: int = 0):
+    sys.stdout.write(f"\nterminating with code {code}\n")
+    sys.exit(code)
 
-def main_processing_loop(stream: Iterable[str] = sys.stdin) -> Generator[Any, None, None]:
-    pipeline = ValidationPipe(rule_non_empty) >> rule_sanitize_sql >> rule_coerce_numeric
-    
-    for line in stream:
-        raw_str = line.rstrip("\r\n")
-        if raw_str.lower() in ("exit", "quit"):
-            break
-            
-        is_valid, processed_val, error_msg = pipeline.validate(raw_str)
-        if not is_valid:
-            sys.stderr.write(f"[INVALID INPUT] {error_msg}\n")
-            continue
-            
-        yield processed_val
+def process_stream(data: str) -> str:
+    return " ".join(data.strip().split()).upper()
 
 if __name__ == "__main__":
-    mock_stream = ["hello world", "", "42", "3.1415", "SELECT * FROM users; DROP TABLE users;", "exit"]
-    for item in main_processing_loop(mock_stream):
-        print(f"Valid output: {item!r} ({type(item).__name__})")
+    handler = CommandHandler()
+    
+    @handler.register("echo")
+    def echo_cmd(text: str):
+        return process_stream(text)
+
+    try:
+        print(handler.execute("echo", "  hello world  "))
+    except Exception as e:
+        print(f"execution error: {e}")
+        graceful_exit(1)
