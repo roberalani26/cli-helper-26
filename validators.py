@@ -1,50 +1,71 @@
-import sys
-from typing import Callable, Generator, Tuple
+import math
+import unicodedata
+from typing import Any, Dict, Union
 
 
-class Rule:
-    """Composable input validator using operator overloading for CLI streams."""
+class EdgeCaseValidationError(ValueError):
+    """Raised when an input violates structural or boundary constraints."""
+    pass
 
-    def __init__(self, predicate: Callable[[str], bool], message: str):
-        self.predicate = predicate
-        self.message = message
 
-    def validate(self, value: str) -> Tuple[bool, str]:
+def sanitize_cli_arg(val: Any) -> Union[str, int, float, bool]:
+    """Extremely defensive parser for chaotic CLI inputs."""
+    if val is None:
+        return ""
+    
+    if isinstance(val, str):
+        # Strip zero-width control characters and normalize unicode unicode representations
+        cleaned = "".join(ch for ch in unicodedata.normalize("NFKC", val) if unicodedata.category(ch) != "Cf")
+        lowered = cleaned.strip().lower()
+        
+        if lowered in ("true", "yes", "1", "on"):
+            return True
+        if lowered in ("false", "no", "0", "off"):
+            return False
+        
+        # Edge case: Disallow non-finite float string representations
+        if lowered in ("nan", "+nan", "-nan", "inf", "+inf", "-inf"):
+            raise EdgeCaseValidationError(f"Forbidden numeric literal detected: {val!r}")
+        
         try:
-            ok = bool(self.predicate(value))
-            return ok, "" if ok else self.message
-        except Exception as err:
-            return False, f"Evaluation failed: {err}"
+            if "." in cleaned or "e" in lowered:
+                parsed_float = float(cleaned)
+                if math.isnan(parsed_float) or math.isinf(parsed_float):
+                    raise EdgeCaseValidationError(f"Unstable float evaluation for: {val!r}")
+                return parsed_float
+            return int(cleaned)
+        except ValueError:
+            return cleaned
 
-    def __and__(self, other: "Rule") -> "Rule":
-        def composed(val: str) -> bool:
-            return self.validate(val)[0] and other.validate(val)[0]
+    if isinstance(val, (int, float)):
+        if math.isnan(val) or math.isinf(val):
+            raise EdgeCaseValidationError(f"Non-finite numeric value rejected: {val}")
+        return val
 
-        return Rule(composed, f"{self.message}; {other.message}")
-
-    def __or__(self, other: "Rule") -> "Rule":
-        def composed(val: str) -> bool:
-            return self.validate(val)[0] or other.validate(val)[0]
-
-        return Rule(composed, f"({self.message} OR {other.message})")
-
-
-def validate_loop_stream(
-    inputs: Generator[str, None, None],
-    rule: Rule
-) -> Generator[Tuple[str, bool, str], None, None]:
-    """Yield validated tokens from the main processing loop stream."""
-    for raw in inputs:
-        token = raw.strip()
-        if not token:
-            continue
-        is_valid, err_msg = rule.validate(token)
-        yield token, is_valid, err_msg
+    return str(val)
 
 
-# Standard validation rules for cli-helper-26
-NON_EMPTY = Rule(lambda s: len(s) > 0, "input cannot be empty")
-SAFE_CHARS = Rule(lambda s: all(c.isalnum() or c in "_.- " for c in s), "contains unsafe characters")
-MAX_LEN = Rule(lambda s: len(s) <= 128, "input exceeds maximum length of 128")
-
-MAIN_LOOP_RULE = NON_EMPTY & SAFE_CHARS & MAX_LEN
+def validate_payload(schema: Dict[str, type], data: Dict[str, Any]) -> Dict[str, Any]:
+    """Validates and normalizes unknown CLI payload dicts against target schemas."""
+    if not isinstance(data, dict):
+        raise EdgeCaseValidationError(f"Expected dict payload, got {type(data).__name__}")
+    
+    validated = {}
+    errors = []
+    
+    for key, expected_type in schema.items():
+        raw_val = data.get(key)
+        try:
+            cleaned = sanitize_cli_arg(raw_val)
+            if cleaned == "" and expected_type is not str:
+                raise EdgeCaseValidationError(f"Missing required parameter: '{key}'")
+            if not isinstance(cleaned, expected_type):
+                cleaned = expected_type(cleaned)
+            validated[key] = cleaned
+        except (ValueError, TypeError, EdgeCaseValidationError) as err:
+            errors.append(f"Field '{key}': {err}")
+            
+    if errors:
+        raise EdgeCaseValidationError("Validation failures:\n  - " + "\n  - ".join(errors))
+        
+    return validated
