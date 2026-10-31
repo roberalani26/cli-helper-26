@@ -1,58 +1,68 @@
+import functools
 import sys
-from functools import lru_cache
-from typing import Callable, Any, Dict, Tuple, Optional
+import time
+from typing import Any, Callable, Dict, List, Tuple
 
 
-class CoreEngine:
-    """Optimized execution core using string interning and token-trie dispatching."""
-    __slots__ = ('_tree', '_exec_count')
+class CachedDescriptor:
+    """Slot-based fast descriptor for caching computed CLI command results."""
 
-    def __init__(self) -> None:
-        self._tree: Dict[str, Any] = {}
-        self._exec_count: int = 0
+    __slots__ = ("_func", "_cache", "_maxsize")
 
-    def register(self, route: str) -> Callable:
-        """Registers a handler for a fast-path CLI route."""
-        def wrapper(func: Callable) -> Callable:
-            tokens = tuple(sys.intern(part) for part in route.strip().split())
-            node = self._tree
-            for token in tokens:
-                node = node.setdefault(token, {})
-            node['$'] = func
-            self._resolve.cache_clear()
-            return func
+    def __init__(self, maxsize: int = 256):
+        self._func: Callable[..., Any] | None = None
+        self._cache: Dict[Tuple[Any, ...], Any] = {}
+        self._maxsize = maxsize
+
+    def __call__(self, func: Callable[..., Any]) -> "CachedDescriptor":
+        self._func = func
+        return self
+
+    def __get__(self, instance: Any, owner: Any) -> Callable[..., Any]:
+        if instance is None:
+            return self
+
+        @functools.wraps(self._func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            key = (args, tuple(sorted(kwargs.items())))
+            if key in self._cache:
+                return self._cache[key]
+
+            result = self._func(instance, *args, **kwargs)
+            if len(self._cache) >= self._maxsize:
+                self._cache.pop(next(iter(self._cache)))
+            self._cache[key] = result
+            return result
+
         return wrapper
 
-    @lru_cache(maxsize=2048)
-    def _resolve(self, tokens: Tuple[str, ...]) -> Tuple[Callable, Tuple[str, ...]]:
-        node = self._tree
-        idx = 0
-        last_func: Optional[Callable] = None
-        last_idx = 0
 
-        for token in tokens:
-            token_interned = sys.intern(token)
-            if token_interned in node:
-                node = node[token_interned]
-                idx += 1
-                if '$' in node:
-                    last_func = node['$']
-                    last_idx = idx
-            else:
-                break
+class CoreCommandPipeline:
+    """High-performance execution engine for CLI operations."""
 
-        if last_func is not None:
-            return last_func, tokens[last_idx:]
-        raise ValueError(f"Unknown command sequence: {' '.join(tokens)}")
+    __slots__ = ("_registry", "_metrics")
 
-    def run(self, raw_input: str) -> Any:
-        """Parse and execute a raw command string at high throughput."""
-        tokens = tuple(raw_input.strip().split())
-        if not tokens:
-            return None
-        self._exec_count += 1
-        handler, leftover = self._resolve(tokens)
-        return handler(*leftover)
+    def __init__(self) -> None:
+        self._registry: Dict[str, Callable[..., Any]] = {}
+        self._metrics: List[float] = []
 
+    def register(self, name: str, fn: Callable[..., Any]) -> None:
+        self._registry[name] = fn
 
-engine = CoreEngine()
+    @CachedDescriptor(maxsize=128)
+    def transform_output(self, template: str, data: Tuple[Tuple[str, str], ...]) -> str:
+        """Optimized template renderer avoiding regex overhead."""
+        result = template
+        for key, value in data:
+            result = result.replace(f"{{{key}}}", value)
+        return result
+
+    def execute_batch(self, tasks: List[Tuple[str, Dict[str, Any]]]) -> List[Any]:
+        """Process batch of CLI calls with execution timing."""
+        start_time = time.perf_counter()
+        results = []
+        for cmd_name, kwargs in tasks:
+            if cmd_name in self._registry:
+                results.append(self._registry[cmd_name](**kwargs))
+        self._metrics.append(time.perf_counter() - start_time)
+        return results
