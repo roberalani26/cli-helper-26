@@ -1,26 +1,29 @@
-import time
-import functools
-import random
+import json
+import os
+from typing import Any, Dict
 
-def retry(max_attempts=3, backoff_factor=1.0):
-    """Decorator applying exponential backoff to network functions."""
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_attempts:
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    attempts += 1
-                    if attempts == max_attempts:
-                        raise e
-                    sleep_time = (backoff_factor * (2 ** (attempts - 1))) + (random.uniform(0, 0.1))
-                    time.sleep(sleep_time)
-        return wrapper
-    return decorator
+class ConfigLoader:
+    """Dynamic configuration loader with fallback defaults."""
+    def __init__(self, defaults: Dict[str, Any]):
+        self._data = defaults.copy()
 
-def perform_network_call(func, *args, **kwargs):
-    """Functional alternative to the retry decorator."""
-    retry_wrapper = retry(max_attempts=3)(func)
-    return retry_wrapper(*args, **kwargs)
+    def load_from_json(self, path: str) -> None:
+        try:
+            if os.path.exists(path):
+                with open(path, 'r') as f:
+                    self._data.update(json.load(f))
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._data.get(key, default)
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self._data:
+            return self._data[name]
+        raise AttributeError(f"config has no attribute {name}")
+
+def load_config(file_path: str, defaults: Dict[str, Any]) -> ConfigLoader:
+    loader = ConfigLoader(defaults)
+    loader.load_from_json(file_path)
+    return loader
