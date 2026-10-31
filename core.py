@@ -1,68 +1,40 @@
-import functools
-import sys
-import time
-from typing import Any, Callable, Dict, List, Tuple
+import collections
+from typing import Any, Iterable, Callable, Dict
 
+class DataMorpher:
+    """A whimsical transformer for nested structures."""
+    def __init__(self, transforms: Dict[type, Callable[[Any], Any]] = None):
+        self.transforms = transforms or {str: str.strip, int: abs}
 
-class CachedDescriptor:
-    """Slot-based fast descriptor for caching computed CLI command results."""
+    def process(self, data: Any) -> Any:
+        if isinstance(data, dict):
+            return {str(k).lower(): self.process(v) for k, v in data.items()}
+        elif isinstance(data, (list, tuple, set)):
+            return [self.process(i) for i in data]
+        elif type(data) in self.transforms:
+            return self.transforms[type(data)](data)
+        return data
 
-    __slots__ = ("_func", "_cache", "_maxsize")
+def flatten_deep(structure: Iterable, depth: int = 1) -> list:
+    """Recursive list flattening with depth constraint."""
+    result = []
+    for item in structure:
+        if depth > 0 and isinstance(item, (list, tuple)):
+            result.extend(flatten_deep(item, depth - 1))
+        else:
+            result.append(item)
+    return result
 
-    def __init__(self, maxsize: int = 256):
-        self._func: Callable[..., Any] | None = None
-        self._cache: Dict[Tuple[Any, ...], Any] = {}
-        self._maxsize = maxsize
-
-    def __call__(self, func: Callable[..., Any]) -> "CachedDescriptor":
-        self._func = func
-        return self
-
-    def __get__(self, instance: Any, owner: Any) -> Callable[..., Any]:
-        if instance is None:
-            return self
-
-        @functools.wraps(self._func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            key = (args, tuple(sorted(kwargs.items())))
-            if key in self._cache:
-                return self._cache[key]
-
-            result = self._func(instance, *args, **kwargs)
-            if len(self._cache) >= self._maxsize:
-                self._cache.pop(next(iter(self._cache)))
-            self._cache[key] = result
-            return result
-
-        return wrapper
-
-
-class CoreCommandPipeline:
-    """High-performance execution engine for CLI operations."""
-
-    __slots__ = ("_registry", "_metrics")
-
-    def __init__(self) -> None:
-        self._registry: Dict[str, Callable[..., Any]] = {}
-        self._metrics: List[float] = []
-
-    def register(self, name: str, fn: Callable[..., Any]) -> None:
-        self._registry[name] = fn
-
-    @CachedDescriptor(maxsize=128)
-    def transform_output(self, template: str, data: Tuple[Tuple[str, str], ...]) -> str:
-        """Optimized template renderer avoiding regex overhead."""
-        result = template
-        for key, value in data:
-            result = result.replace(f"{{{key}}}", value)
-        return result
-
-    def execute_batch(self, tasks: List[Tuple[str, Dict[str, Any]]]) -> List[Any]:
-        """Process batch of CLI calls with execution timing."""
-        start_time = time.perf_counter()
-        results = []
-        for cmd_name, kwargs in tasks:
-            if cmd_name in self._registry:
-                results.append(self._registry[cmd_name](**kwargs))
-        self._metrics.append(time.perf_counter() - start_time)
-        return results
+def batch_process(data: Iterable, chunk_size: int = 5) -> Iterable:
+    """Generator for chunking arbitrary iterables."""
+    it = iter(data)
+    while True:
+        chunk = []
+        try:
+            for _ in range(chunk_size):
+                chunk.append(next(it))
+            yield chunk
+        except StopIteration:
+            if chunk:
+                yield chunk
+            break
