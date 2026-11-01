@@ -1,48 +1,34 @@
 import sys
-from dataclasses import dataclass
 from typing import Any, Callable, Dict
 
-@dataclass
-class CommandHandler:
-    registry: Dict[str, Callable] = None
+class ExecutionContext:
+    def __init__(self):
+        self.fallback = lambda e: print(f"[!] Critical failure: {e}")
+        self.registry: Dict[type, Callable] = {}
 
-    def __post_init__(self):
-        self.registry = {}
+    def register(self, exception_type: type, handler: Callable):
+        self.registry[exception_type] = handler
 
-    def register(self, name: str):
-        def decorator(func: Callable):
-            self.registry[name] = func
-            return func
-        return decorator
+    def execute(self, func: Callable, *args: Any, **kwargs: Any) -> Any:
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            handler = self.registry.get(type(e))
+            if handler:
+                return handler(e)
+            return self.fallback(e)
 
-    def execute(self, cmd: str, *args, **kwargs) -> Any:
-        func = self.registry.get(cmd)
-        if not func:
-            raise ValueError(f"unknown command: {cmd}")
-        return func(*args, **kwargs)
+    def handle_io(self, e: Exception):
+        print(f"[?] Disk or Network flux: {e}")
+        return None
 
-    @classmethod
-    def bootstrap(cls, commands: Dict[str, Callable]):
-        instance = cls()
-        instance.registry.update(commands)
-        return instance
+    def handle_math(self, e: Exception):
+        print(f"[!] Numerical anomaly detected: {e}")
+        return 0
 
-def graceful_exit(code: int = 0):
-    sys.stdout.write(f"\nterminating with code {code}\n")
-    sys.exit(code)
+ctx = ExecutionContext()
+ctx.register(IOError, ctx.handle_io)
+ctx.register(ZeroDivisionError, ctx.handle_math)
 
-def process_stream(data: str) -> str:
-    return " ".join(data.strip().split()).upper()
-
-if __name__ == "__main__":
-    handler = CommandHandler()
-    
-    @handler.register("echo")
-    def echo_cmd(text: str):
-        return process_stream(text)
-
-    try:
-        print(handler.execute("echo", "  hello world  "))
-    except Exception as e:
-        print(f"execution error: {e}")
-        graceful_exit(1)
+def run_safely(task: Callable, *args, **kwargs):
+    return ctx.execute(task, *args, **kwargs)
