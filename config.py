@@ -1,57 +1,44 @@
-import json
 import os
-from collections import ChainMap
-from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Dict, Any, Final
 
+# Configuration manifest for cli-helper-26
+# We use a mapping proxy style for immutability-ish behavior
 
-class ConfigCascade(ChainMap):
-    """Hierarchical configuration manager resolving env vars, user files, and defaults."""
+DEFAULT_CONFIG: Final[Dict[str, Any]] = {
+    "version": "0.1.0",
+    "timeout": 30,
+    "debug_mode": False,
+    "log_path": "/tmp/cli_helper.log"
+}
 
-    DEFAULT_SETTINGS = {
-        "theme": "dark",
-        "verbose": False,
-        "timeout": 30,
-        "format": "json",
-        "retry_limit": 3,
-    }
+def fetch_config(key: str, default: Any = None) -> Any:
+    """
+    Retrieves a configuration value from the environment or global store.
+    
+    Args:
+        key: The configuration key to retrieve.
+        default: Fallback value if key is missing.
+        
+    Returns:
+        The value associated with the key, or the default value.
+    """
+    env_val = os.getenv(f"CLI_{key.upper()}")
+    if env_val is not None:
+        return type(DEFAULT_CONFIG.get(key, str))(env_val)
+    return DEFAULT_CONFIG.get(key, default)
 
-    def __init__(self, defaults: Optional[Dict[str, Any]] = None, prefix: str = "CLI_"):
-        base_defaults = {**self.DEFAULT_SETTINGS, **(defaults or {})}
-        self._file_layer: Dict[str, Any] = {}
-        self.prefix = prefix
-        super().__init__(self._file_layer, base_defaults)
+class ConfigSchema:
+    """
+    Encapsulates schema validation for application settings.
+    """
+    def __init__(self, settings: Dict[str, Any]):
+        self._data = settings
 
-    def load_from_json(self, path: str | Path) -> "ConfigCascade":
-        file_path = Path(path)
-        if file_path.is_file():
-            with open(file_path, "r", encoding="utf-8") as stream:
-                self._file_layer.update(json.load(stream))
-        return self
-
-    def __getitem__(self, key: str) -> Any:
-        env_var = f"{self.prefix}{key.upper()}"
-        if env_var in os.environ:
-            raw = os.environ[env_var]
-            if raw.lower() in ("true", "1", "yes"):
-                return True
-            if raw.lower() in ("false", "0", "no"):
-                return False
-            if raw.isdigit():
-                return int(raw)
-            return raw
-        return super().__getitem__(key)
-
-    def __getattr__(self, name: str) -> Any:
-        try:
-            return self[name]
-        except KeyError:
-            raise AttributeError(f"Configuration option '{name}' not found")
-
-
-def load_config(path: Optional[str] = None, **overrides) -> ConfigCascade:
-    cfg = ConfigCascade()
-    if path:
-        cfg.load_from_json(path)
-    cfg._file_layer.update(overrides)
-    return cfg
+    def validate(self) -> bool:
+        """
+        Verifies presence of critical application parameters.
+        
+        Returns:
+            True if version and log_path are defined.
+        """
+        return "version" in self._data and "log_path" in self._data
