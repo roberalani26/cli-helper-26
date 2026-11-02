@@ -1,71 +1,74 @@
-import math
+import sys
+import re
 import unicodedata
-from typing import Any, Dict, Union
+from typing import Any, Callable, Optional, Tuple, Union
 
-
-class EdgeCaseValidationError(ValueError):
-    """Raised when an input violates structural or boundary constraints."""
+class ValidationError(Exception):
+    """Base exception raised when validation and recovery fail."""
     pass
 
+class ValidationRule:
+    """Validation rule wrapper with pipeline chaining via bitwise OR (|)."""
 
-def sanitize_cli_arg(val: Any) -> Union[str, int, float, bool]:
-    """Extremely defensive parser for chaotic CLI inputs."""
-    if val is None:
-        return ""
-    
-    if isinstance(val, str):
-        # Strip zero-width control characters and normalize unicode unicode representations
-        cleaned = "".join(ch for ch in unicodedata.normalize("NFKC", val) if unicodedata.category(ch) != "Cf")
-        lowered = cleaned.strip().lower()
-        
-        if lowered in ("true", "yes", "1", "on"):
-            return True
-        if lowered in ("false", "no", "0", "off"):
-            return False
-        
-        # Edge case: Disallow non-finite float string representations
-        if lowered in ("nan", "+nan", "-nan", "inf", "+inf", "-inf"):
-            raise EdgeCaseValidationError(f"Forbidden numeric literal detected: {val!r}")
-        
+    def __init__(self, check_fn: Callable[[Any], Any], recovery_fn: Optional[Callable[[Any, Exception], Any]] = None):
+        self.check_fn = check_fn
+        self.recovery_fn = recovery_fn
+
+    def __call__(self, value: Any) -> Any:
         try:
-            if "." in cleaned or "e" in lowered:
-                parsed_float = float(cleaned)
-                if math.isnan(parsed_float) or math.isinf(parsed_float):
-                    raise EdgeCaseValidationError(f"Unstable float evaluation for: {val!r}")
-                return parsed_float
-            return int(cleaned)
-        except ValueError:
-            return cleaned
+            return self.check_fn(value)
+        except Exception as err:
+            if self.recovery_fn:
+                try:
+                    return self.recovery_fn(value, err)
+                except Exception as recovery_err:
+                    raise ValidationError(f"Recovery failed for input {value!r}: {recovery_err}") from err
+            raise ValidationError(f"Validation failed for input {value!r}: {err}") from err
 
-    if isinstance(val, (int, float)):
-        if math.isnan(val) or math.isinf(val):
-            raise EdgeCaseValidationError(f"Non-finite numeric value rejected: {val}")
-        return val
+    def __or__(self, next_rule: "ValidationRule") -> "ValidationRule":
+        def combined(val: Any) -> Any:
+            return next_rule(self(val))
+        return ValidationRule(combined)
 
-    return str(val)
-
-
-def validate_payload(schema: Dict[str, type], data: Dict[str, Any]) -> Dict[str, Any]:
-    """Validates and normalizes unknown CLI payload dicts against target schemas."""
-    if not isinstance(data, dict):
-        raise EdgeCaseValidationError(f"Expected dict payload, got {type(data).__name__}")
+def sanitize_cli_arg(arg: Any) -> str:
+    """Normalize unicode and strip dangerous invisible control characters."""
+    if not isinstance(arg, (str, bytes)):
+        arg = str(arg)
+    if isinstance(arg, bytes):
+        arg = arg.decode("utf-8", errors="replace")
     
-    validated = {}
-    errors = []
+    cleaned = unicodedata.normalize("NFKC", arg)
+    cleaned = "".join(ch for ch in cleaned if unicodedata.category(ch)[0] != "C" or ch in "\n\t\r")
+    if not cleaned.strip():
+        raise ValueError("Input string is empty or contains only non-printable chars")
+    return cleaned.strip()
+
+def recover_malformed_flag(val: Any, err: Exception) -> str:
+    """Attempt auto-repair of malformed flag arguments like --foo= or unclosed quotes."""
+    raw = str(val).rstrip("=")
+    if (raw.startswith('"') and not raw.endswith('"')) or (raw.startswith("'") and not raw.endswith("'")):
+        raw = raw + raw[0]
+    return sanitize_cli_arg(raw)
+
+def parse_numeric_option(val: str) -> Union[int, float]:
+    """Parse numeric input while guarding against infinity and NaN edge cases."""
+    clean = str(val).strip().lower()
+    if clean in ("inf", "-inf", "nan", "+inf"):
+        raise ValueError("Infinite or NaN values are forbidden in CLI options")
+    return float(clean) if "." in clean else int(clean)
+
+def validate_cli_input(raw_input: Any) -> Tuple[str, Optional[Union[int, float]]]:
+    """Execute pipeline with resilience against malformed tokens and edge cases."""
+    str_rule = ValidationRule(sanitize_cli_arg, recovery_fn=recover_malformed_flag)
+    num_rule = ValidationRule(parse_numeric_option, recovery_fn=lambda v, e: 0)
     
-    for key, expected_type in schema.items():
-        raw_val = data.get(key)
+    clean_str = str_rule(raw_input)
+    num_val = None
+    if re.search(r"\d", clean_str):
         try:
-            cleaned = sanitize_cli_arg(raw_val)
-            if cleaned == "" and expected_type is not str:
-                raise EdgeCaseValidationError(f"Missing required parameter: '{key}'")
-            if not isinstance(cleaned, expected_type):
-                cleaned = expected_type(cleaned)
-            validated[key] = cleaned
-        except (ValueError, TypeError, EdgeCaseValidationError) as err:
-            errors.append(f"Field '{key}': {err}")
+            extracted = re.sub(r"[^\d.-]", "", clean_str)
+            num_val = num_rule(extracted)
+        except ValidationError:
+            num_val = 0
             
-    if errors:
-        raise EdgeCaseValidationError("Validation failures:\n  - " + "\n  - ".join(errors))
-        
-    return validated
+    return clean_str, num_val
