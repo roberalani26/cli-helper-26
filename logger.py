@@ -1,33 +1,52 @@
+import sys
 import logging
 from logging.handlers import RotatingFileHandler
-import os
+from typing import Optional
 
-class LoggerSetup:
-    def __init__(self, name='cli-helper-26', log_file='app.log', max_bytes=1048576, backup_count=3):
-        self.logger = logging.getLogger(name)
-        self.logger.setLevel(logging.DEBUG)
-        
-        formatter = logging.Formatter(
-            '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
+class DynamicColorFormatter(logging.Formatter):
+    """Unusual formatter adding dynamic CLI ASCII indicators and colors."""
+    LEVEL_COLORS = {
+        logging.DEBUG: "\033[36m",
+        logging.INFO: "\033[32m",
+        logging.WARNING: "\033[33m",
+        logging.ERROR: "\033[31m",
+        logging.CRITICAL: "\033[41m"
+    }
+    RESET = "\033[0m"
 
-        file_handler = RotatingFileHandler(
-            log_file, 
-            maxBytes=max_bytes, 
-            backupCount=backup_count
-        )
-        file_handler.setFormatter(formatter)
-        
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
+    def format(self, record: logging.LogRecord) -> str:
+        color = self.LEVEL_COLORS.get(record.levelno, self.RESET)
+        record.levelname_color = f"{color}▶ {record.levelname}{self.RESET}"
+        return super().format(record)
 
-        self.logger.addHandler(file_handler)
-        self.logger.addHandler(console_handler)
+def setup_cli_logger(
+    log_file: str = "cli_helper.log",
+    max_bytes: int = 2 * 1024 * 1024,
+    backup_count: int = 5,
+    level: int = logging.INFO
+) -> logging.Logger:
+    """Configures a dual-stream logger with file rotation and colorized stdout."""
+    logger = logging.getLogger("cli_helper")
+    logger.setLevel(level)
+    logger.handlers.clear()
 
-    def get_logger(self):
-        return self.logger
+    file_handler = RotatingFileHandler(
+        log_file, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
+    )
+    file_fmt = logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s"
+    )
+    file_handler.setFormatter(file_fmt)
+    logger.addHandler(file_handler)
 
-# Dynamic instantiation proxy
-def get_configured_logger():
-    return LoggerSetup().get_logger()
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_fmt = DynamicColorFormatter("%(levelname_color)s %(message)s")
+    console_handler.setFormatter(console_fmt)
+    logger.addHandler(console_handler)
+
+    return logger
+
+def get_logger(name: Optional[str] = None) -> logging.Logger:
+    return logging.getLogger(name if name else "cli_helper")
+
+default_logger = setup_cli_logger()
