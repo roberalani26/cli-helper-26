@@ -1,43 +1,44 @@
 import functools
 import time
 
-class PerformanceOptimizer:
-    """Sliding window memoization for resource-heavy operations."""
-    def __init__(self, limit=128):
-        self.limit = limit
-        self.cache = {}
-        self.history = []
-
-    def __call__(self, func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            key = (args, tuple(sorted(kwargs.items())))
-            if key in self.cache:
-                return self.cache[key]
-            
-            result = func(*args, **kwargs)
-            
-            if len(self.cache) >= self.limit:
-                oldest = self.history.pop(0)
-                self.cache.pop(oldest, None)
-            
-            self.cache[key] = result
-            self.history.append(key)
-            return result
-        return wrapper
-
-def heavy_computation(x):
-    time.sleep(0.1)
-    return x * x
-
-@PerformanceOptimizer(limit=64)
-def optimized_process(data):
-    return heavy_computation(data)
-
-class ProcessorState:
+class PerformanceEngine:
     def __init__(self):
-        self._buffer = []
+        self._cache = {}
+        self._hits = 0
 
-    def batch_process(self, items):
-        # Vectorized-style lazy execution trick
-        return [optimized_process(i) for i in items]
+    def memoize_with_ttl(self, ttl=60):
+        def decorator(func):
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                key = (func.__name__, args, frozenset(kwargs.items()))
+                now = time.time()
+                if key in self._cache:
+                    result, expiry = self._cache[key]
+                    if now < expiry:
+                        self._hits += 1
+                        return result
+                
+                result = func(*args, **kwargs)
+                self._cache[key] = (result, now + ttl)
+                return result
+            return wrapper
+        return decorator
+
+    def flush_stale(self):
+        now = time.time()
+        self._cache = {k: v for k, v in self._cache.items() if v[1] > now}
+
+    @property
+    def statistics(self):
+        return {'cache_size': len(self._cache), 'hits': self._hits}
+
+class CoreProcessor(PerformanceEngine):
+    def __init__(self, data_stream):
+        super().__init__()
+        self.data = data_stream
+
+    @PerformanceEngine.memoize_with_ttl(self=None, ttl=30)
+    def compute_heavy_metrics(self, factor):
+        # Simulating intensive computation
+        time.sleep(0.5)
+        return sum([x * factor for x in self.data])
