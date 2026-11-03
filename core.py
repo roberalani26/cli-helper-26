@@ -1,40 +1,43 @@
-import collections
-from typing import Any, Iterable, Callable, Dict
+import functools
+import time
 
-class DataMorpher:
-    """A whimsical transformer for nested structures."""
-    def __init__(self, transforms: Dict[type, Callable[[Any], Any]] = None):
-        self.transforms = transforms or {str: str.strip, int: abs}
+class PerformanceOptimizer:
+    """Sliding window memoization for resource-heavy operations."""
+    def __init__(self, limit=128):
+        self.limit = limit
+        self.cache = {}
+        self.history = []
 
-    def process(self, data: Any) -> Any:
-        if isinstance(data, dict):
-            return {str(k).lower(): self.process(v) for k, v in data.items()}
-        elif isinstance(data, (list, tuple, set)):
-            return [self.process(i) for i in data]
-        elif type(data) in self.transforms:
-            return self.transforms[type(data)](data)
-        return data
+    def __call__(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, tuple(sorted(kwargs.items())))
+            if key in self.cache:
+                return self.cache[key]
+            
+            result = func(*args, **kwargs)
+            
+            if len(self.cache) >= self.limit:
+                oldest = self.history.pop(0)
+                self.cache.pop(oldest, None)
+            
+            self.cache[key] = result
+            self.history.append(key)
+            return result
+        return wrapper
 
-def flatten_deep(structure: Iterable, depth: int = 1) -> list:
-    """Recursive list flattening with depth constraint."""
-    result = []
-    for item in structure:
-        if depth > 0 and isinstance(item, (list, tuple)):
-            result.extend(flatten_deep(item, depth - 1))
-        else:
-            result.append(item)
-    return result
+def heavy_computation(x):
+    time.sleep(0.1)
+    return x * x
 
-def batch_process(data: Iterable, chunk_size: int = 5) -> Iterable:
-    """Generator for chunking arbitrary iterables."""
-    it = iter(data)
-    while True:
-        chunk = []
-        try:
-            for _ in range(chunk_size):
-                chunk.append(next(it))
-            yield chunk
-        except StopIteration:
-            if chunk:
-                yield chunk
-            break
+@PerformanceOptimizer(limit=64)
+def optimized_process(data):
+    return heavy_computation(data)
+
+class ProcessorState:
+    def __init__(self):
+        self._buffer = []
+
+    def batch_process(self, items):
+        # Vectorized-style lazy execution trick
+        return [optimized_process(i) for i in items]
