@@ -1,34 +1,46 @@
-import sys
-from typing import Any, Callable, Dict
+import functools
+import collections
+import time
 
-class ExecutionContext:
+class ExecutionEngine:
     def __init__(self):
-        self.fallback = lambda e: print(f"[!] Critical failure: {e}")
-        self.registry: Dict[type, Callable] = {}
+        self._memo = {}
+        self._hits = collections.deque(maxlen=1000)
 
-    def register(self, exception_type: type, handler: Callable):
-        self.registry[exception_type] = handler
+    def fast_track(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (func.__name__, args, frozenset(kwargs.items()))
+            if key in self._memo:
+                return self._memo[key]
+            
+            result = func(*args, **kwargs)
+            
+            if len(self._memo) > 1000:
+                oldest = self._hits.popleft()
+                self._memo.pop(oldest, None)
+            
+            self._memo[key] = result
+            self._hits.append(key)
+            return result
+        return wrapper
 
-    def execute(self, func: Callable, *args: Any, **kwargs: Any) -> Any:
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            handler = self.registry.get(type(e))
-            if handler:
-                return handler(e)
-            return self.fallback(e)
+    @staticmethod
+    def batch_process(data, chunk_size=10):
+        for i in range(0, len(data), chunk_size):
+            yield data[i:i + chunk_size]
 
-    def handle_io(self, e: Exception):
-        print(f"[?] Disk or Network flux: {e}")
-        return None
+def optimize_compute(func):
+    engine = ExecutionEngine()
+    return engine.fast_track(func)
 
-    def handle_math(self, e: Exception):
-        print(f"[!] Numerical anomaly detected: {e}")
-        return 0
+if __name__ == '__main__':
+    @optimize_compute
+    def heavy_calculation(n):
+        time.sleep(0.1)
+        return n * n
 
-ctx = ExecutionContext()
-ctx.register(IOError, ctx.handle_io)
-ctx.register(ZeroDivisionError, ctx.handle_math)
-
-def run_safely(task: Callable, *args, **kwargs):
-    return ctx.execute(task, *args, **kwargs)
+    start = time.perf_counter()
+    [heavy_calculation(x) for x in range(5)]
+    [heavy_calculation(x) for x in range(5)]
+    print(f'Execution duration: {time.perf_counter() - start:.4f}s')
