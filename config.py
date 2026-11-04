@@ -1,44 +1,38 @@
+import json
 import os
-from typing import Dict, Any, Final
+from typing import Any, Dict
 
-# Configuration manifest for cli-helper-26
-# We use a mapping proxy style for immutability-ish behavior
+class ConfigLoader:
+    def __init__(self, file_path: str, defaults: Dict[str, Any]):
+        self.path = file_path
+        self.data = defaults
+        self._load()
 
-DEFAULT_CONFIG: Final[Dict[str, Any]] = {
-    "version": "0.1.0",
-    "timeout": 30,
-    "debug_mode": False,
-    "log_path": "/tmp/cli_helper.log"
-}
+    def _load(self) -> None:
+        if os.path.exists(self.path):
+            with open(self.path, 'r') as f:
+                try:
+                    user_config = json.load(f)
+                    self.data.update({k: v for k, v in user_config.items() if k in self.data})
+                except json.JSONDecodeError:
+                    pass
 
-def fetch_config(key: str, default: Any = None) -> Any:
-    """
-    Retrieves a configuration value from the environment or global store.
-    
-    Args:
-        key: The configuration key to retrieve.
-        default: Fallback value if key is missing.
-        
-    Returns:
-        The value associated with the key, or the default value.
-    """
-    env_val = os.getenv(f"CLI_{key.upper()}")
-    if env_val is not None:
-        return type(DEFAULT_CONFIG.get(key, str))(env_val)
-    return DEFAULT_CONFIG.get(key, default)
+    def __getitem__(self, key: str) -> Any:
+        return self.data.get(key)
 
-class ConfigSchema:
-    """
-    Encapsulates schema validation for application settings.
-    """
-    def __init__(self, settings: Dict[str, Any]):
-        self._data = settings
+    def __repr__(self) -> str:
+        return f"<ConfigLoader: {list(self.data.keys())}>"
 
-    def validate(self) -> bool:
-        """
-        Verifies presence of critical application parameters.
-        
-        Returns:
-            True if version and log_path are defined.
-        """
-        return "version" in self._data and "log_path" in self._data
+def get_config(path: str, defaults: Dict[str, Any]) -> ConfigLoader:
+    return ConfigLoader(path, defaults)
+
+# Dynamic override proxy
+class ConfigProxy:
+    def __init__(self, loader: ConfigLoader):
+        self.__dict__['_loader'] = loader
+
+    def __getattr__(self, item: str) -> Any:
+        return self._loader[item]
+
+    def __setattr__(self, key: str, value: Any) -> None:
+        raise AttributeError("config is read-only")
