@@ -1,52 +1,26 @@
-import sys
-import logging
-from logging.handlers import RotatingFileHandler
-from typing import Optional
+import datetime
+from typing import Any, NoReturn
 
-class DynamicColorFormatter(logging.Formatter):
-    """Unusual formatter adding dynamic CLI ASCII indicators and colors."""
-    LEVEL_COLORS = {
-        logging.DEBUG: "\033[36m",
-        logging.INFO: "\033[32m",
-        logging.WARNING: "\033[33m",
-        logging.ERROR: "\033[31m",
-        logging.CRITICAL: "\033[41m"
-    }
-    RESET = "\033[0m"
+class CLIConsoleLogger:
+    """Custom console logger with timestamped decoration."""
 
-    def format(self, record: logging.LogRecord) -> str:
-        color = self.LEVEL_COLORS.get(record.levelno, self.RESET)
-        record.levelname_color = f"{color}▶ {record.levelname}{self.RESET}"
-        return super().format(record)
+    def __init__(self, prefix: str = "[cli-helper-26]") -> None:
+        self.prefix: str = prefix
 
-def setup_cli_logger(
-    log_file: str = "cli_helper.log",
-    max_bytes: int = 2 * 1024 * 1024,
-    backup_count: int = 5,
-    level: int = logging.INFO
-) -> logging.Logger:
-    """Configures a dual-stream logger with file rotation and colorized stdout."""
-    logger = logging.getLogger("cli_helper")
-    logger.setLevel(level)
-    logger.handlers.clear()
+    def log(self, message: Any) -> None:
+        """Prints formatted message to stdout."""
+        timestamp: str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"{self.prefix} {timestamp} | {str(message)}")
 
-    file_handler = RotatingFileHandler(
-        log_file, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
-    )
-    file_fmt = logging.Formatter(
-        "[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s"
-    )
-    file_handler.setFormatter(file_fmt)
-    logger.addHandler(file_handler)
+    def critical_error(self, message: str) -> NoReturn:
+        """Logs a fatal message and triggers an exception."""
+        self.log(f"CRITICAL: {message}")
+        raise RuntimeError(f"Execution aborted: {message}")
 
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_fmt = DynamicColorFormatter("%(levelname_color)s %(message)s")
-    console_handler.setFormatter(console_fmt)
-    logger.addHandler(console_handler)
+def get_logger(module_name: str = "default") -> CLIConsoleLogger:
+    """Factory function returning a configured logger instance."""
+    return CLIConsoleLogger(prefix=f"[{module_name.upper()}]")
 
-    return logger
-
-def get_logger(name: Optional[str] = None) -> logging.Logger:
-    return logging.getLogger(name if name else "cli_helper")
-
-default_logger = setup_cli_logger()
+if __name__ == "__main__":
+    logger: CLIConsoleLogger = get_logger("core")
+    logger.log("system initialized successfully")
