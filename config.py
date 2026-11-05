@@ -1,38 +1,34 @@
-import json
 import os
-from typing import Any, Dict
+import json
+import logging
+from pathlib import Path
 
 class ConfigLoader:
-    def __init__(self, file_path: str, defaults: Dict[str, Any]):
-        self.path = file_path
-        self.data = defaults
-        self._load()
+    def __init__(self, path: str = 'settings.json'):
+        self.path = Path(path)
+        self.data = {}
 
-    def _load(self) -> None:
-        if os.path.exists(self.path):
+    def load(self):
+        try:
+            if not self.path.exists():
+                raise FileNotFoundError(f"Config missing: {self.path}")
+            
             with open(self.path, 'r') as f:
-                try:
-                    user_config = json.load(f)
-                    self.data.update({k: v for k, v in user_config.items() if k in self.data})
-                except json.JSONDecodeError:
-                    pass
+                self.data = json.load(f)
+                
+        except (json.JSONDecodeError, PermissionError, FileNotFoundError) as e:
+            self._handle_error(e)
+        return self.data
 
-    def __getitem__(self, key: str) -> Any:
-        return self.data.get(key)
+    def _handle_error(self, err):
+        fallback = {'theme': 'dark', 'retries': 3}
+        logging.error(f"Configuration failure: {err}. Using default state.")
+        self.data = fallback
 
-    def __repr__(self) -> str:
-        return f"<ConfigLoader: {list(self.data.keys())}>"
+    def get(self, key, default=None):
+        return self.data.get(key, default)
 
-def get_config(path: str, defaults: Dict[str, Any]) -> ConfigLoader:
-    return ConfigLoader(path, defaults)
-
-# Dynamic override proxy
-class ConfigProxy:
-    def __init__(self, loader: ConfigLoader):
-        self.__dict__['_loader'] = loader
-
-    def __getattr__(self, item: str) -> Any:
-        return self._loader[item]
-
-    def __setattr__(self, key: str, value: Any) -> None:
-        raise AttributeError("config is read-only")
+    def validate_env(self):
+        if 'API_KEY' not in os.environ:
+            raise EnvironmentError("Critical: API_KEY missing from system env")
+        return True
