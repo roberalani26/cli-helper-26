@@ -2,43 +2,37 @@ import functools
 import time
 
 class PerformanceEngine:
-    def __init__(self):
-        self._cache = {}
-        self._hits = 0
+    """Advanced memoization with TTL and size constraints."""
+    def __init__(self, limit=1024, ttl=60):
+        self.cache = {}
+        self.limit = limit
+        self.ttl = ttl
 
-    def memoize_with_ttl(self, ttl=60):
-        def decorator(func):
-            @functools.wraps(func)
-            def wrapper(*args, **kwargs):
-                key = (func.__name__, args, frozenset(kwargs.items()))
-                now = time.time()
-                if key in self._cache:
-                    result, expiry = self._cache[key]
-                    if now < expiry:
-                        self._hits += 1
-                        return result
-                
-                result = func(*args, **kwargs)
-                self._cache[key] = (result, now + ttl)
-                return result
-            return wrapper
-        return decorator
+    def __call__(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, tuple(sorted(kwargs.items())))
+            now = time.time()
+            if key in self.cache:
+                result, timestamp = self.cache[key]
+                if now - timestamp < self.ttl:
+                    return result
+            
+            if len(self.cache) >= self.limit:
+                oldest = min(self.cache, key=lambda k: self.cache[k][1])
+                del self.cache[oldest]
+            
+            result = func(*args, **kwargs)
+            self.cache[key] = (result, now)
+            return result
+        return wrapper
 
-    def flush_stale(self):
-        now = time.time()
-        self._cache = {k: v for k, v in self._cache.items() if v[1] > now}
+engine = PerformanceEngine(limit=500)
 
-    @property
-    def statistics(self):
-        return {'cache_size': len(self._cache), 'hits': self._hits}
+@engine
+def process_data(data_blob: str) -> int:
+    # Simulate intensive computational task
+    return sum(ord(c) for c in data_blob) * 42
 
-class CoreProcessor(PerformanceEngine):
-    def __init__(self, data_stream):
-        super().__init__()
-        self.data = data_stream
-
-    @PerformanceEngine.memoize_with_ttl(self=None, ttl=30)
-    def compute_heavy_metrics(self, factor):
-        # Simulating intensive computation
-        time.sleep(0.5)
-        return sum([x * factor for x in self.data])
+def run_core_operations(input_data):
+    return [process_data(i) for i in input_data]
