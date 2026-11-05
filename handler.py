@@ -1,46 +1,36 @@
-import functools
-import collections
-import time
+import json
+from typing import Any, Callable, Dict, Optional
 
-class ExecutionEngine:
-    def __init__(self):
-        self._memo = {}
-        self._hits = collections.deque(maxlen=1000)
+class DataPipeline:
+    """A whimsical pipeline for data transformation."""
+    def __init__(self, data: Any):
+        self._payload = data
 
-    def fast_track(self, func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            key = (func.__name__, args, frozenset(kwargs.items()))
-            if key in self._memo:
-                return self._memo[key]
-            
-            result = func(*args, **kwargs)
-            
-            if len(self._memo) > 1000:
-                oldest = self._hits.popleft()
-                self._memo.pop(oldest, None)
-            
-            self._memo[key] = result
-            self._hits.append(key)
-            return result
-        return wrapper
+    def pipe(self, *funcs: Callable[[Any], Any]) -> 'DataPipeline':
+        for f in funcs:
+            self._payload = f(self._payload)
+        return self
 
-    @staticmethod
-    def batch_process(data, chunk_size=10):
-        for i in range(0, len(data), chunk_size):
-            yield data[i:i + chunk_size]
+    @property
+    def result(self) -> Any:
+        return self._payload
 
-def optimize_compute(func):
-    engine = ExecutionEngine()
-    return engine.fast_track(func)
+def sanitizer(val: Any) -> Any:
+    if isinstance(val, str):
+        return val.strip().lower()
+    return val
 
-if __name__ == '__main__':
-    @optimize_compute
-    def heavy_calculation(n):
-        time.sleep(0.1)
-        return n * n
+def json_serializer(data: Any) -> str:
+    return json.dumps(data, indent=2)
 
-    start = time.perf_counter()
-    [heavy_calculation(x) for x in range(5)]
-    [heavy_calculation(x) for x in range(5)]
-    print(f'Execution duration: {time.perf_counter() - start:.4f}s')
+def transform_data(raw_input: Dict[str, Any]) -> str:
+    """Chainable data processing for input maps."""
+    return (
+        DataPipeline(raw_input)
+        .pipe(
+            lambda d: {k: sanitizer(v) for k, v in d.items()},
+            lambda d: {**d, 'processed': True},
+            json_serializer
+        )
+        .result
+    )
