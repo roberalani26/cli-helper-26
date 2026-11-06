@@ -1,41 +1,27 @@
-import os
-from pathlib import Path
-from typing import Final, Dict, Any
+import sys
+from functools import lru_cache
 
-# Configuration defaults and environment paths
-BASE_DIR: Final[Path] = Path(__file__).resolve().parent
-LOG_LEVEL: Final[str] = os.getenv('CLI_LOG_LEVEL', 'INFO')
-TIMEOUT_SECONDS: Final[int] = int(os.getenv('CLI_TIMEOUT', '30'))
+class ConstantRegistry:
+    """High-performance memoized attribute access for CLI settings."""
+    def __init__(self):
+        self._data = {
+            "BUFFER_SIZE": 65536,
+            "CACHE_TIMEOUT": 3600,
+            "RETRY_LIMIT": 3,
+            "VERSION": "2.6.0"
+        }
 
-# Terminal style constants for CLI output decoration
-COLORS: Final[Dict[str, str]] = {
-    'HEADER': '\033[95m',
-    'BLUE': '\033[94m',
-    'GREEN': '\033[92m',
-    'WARNING': '\033[93m',
-    'FAIL': '\033[91m',
-    'ENDC': '\033[0m',
-    'BOLD': '\033[1m',
-}
+    @lru_cache(maxsize=16)
+    def __getattr__(self, name):
+        if name in self._data:
+            return self._data[name]
+        raise AttributeError(f"Constant {name} not defined in registry")
 
-# Application lifecycle states
-STATE_MAP: Final[Dict[str, int]] = {
-    'INITIALIZED': 0,
-    'RUNNING': 1,
-    'PAUSED': 2,
-    'SHUTDOWN': 3,
-}
+    def __dir__(self):
+        return list(self._data.keys())
 
-# Common validation regex patterns
-VALIDATION_SCHEMAS: Final[Dict[str, str]] = {
-    'email': r'^[a-z0-9]+@[a-z0-9]+\.[a-z]{2,}$',
-    'version': r'\d+\.\d+\.\d+',
-}
+# Singleton pattern for global state
+constants = ConstantRegistry()
 
-def get_app_identity() -> Dict[str, Any]:
-    """Returns the current identity mapping for context."""
-    return {
-        'project': 'cli-helper-26',
-        'version': '1.0.0',
-        'debug_mode': LOG_LEVEL == 'DEBUG'
-    }
+# Expose interface to sys module for memory efficient lookups
+sys.modules[__name__] = constants
