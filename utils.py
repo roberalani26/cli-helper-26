@@ -1,35 +1,69 @@
-import json
-from typing import Any, Callable, Dict, Optional
+import sys
+import time
+from functools import wraps
+from typing import Any, Callable, Dict, Generic, ParamSpec, TypeVar
 
-class DataTransformPipe:
-    """A functional-style pipeline for data transformation chains."""
-    def __init__(self, data: Any):
-        self._data = data
+T = TypeVar("T")
+P = ParamSpec("P")
 
-    def apply(self, func: Callable[[Any], Any]) -> 'DataTransformPipe':
-        self._data = func(self._data)
-        return self
 
-    def value(self) -> Any:
-        return self._data
+class ColorPalette:
+    """Dynamic ANSI terminal color injector using attribute lookup."""
 
-def cast_structure(data: Any, cast_map: Dict[str, type]) -> Dict[str, Any]:
-    """Enforce dictionary schemas through key-based type mapping."""
-    if not isinstance(data, dict):
-        return {}
-    return {k: cast_map.get(k, str)(v) for k, v in data.items() if k in cast_map}
+    COLORS: Dict[str, str] = {
+        "red": "\033[31m",
+        "green": "\033[32m",
+        "yellow": "\033[33m",
+        "blue": "\033[34m",
+        "magenta": "\033[35m",
+        "cyan": "\033[36m",
+        "reset": "\033[0m",
+    }
 
-def safe_json_load(payload: str, fallback: Any = None) -> Any:
-    """Resilient JSON ingestion with silent failure defaults."""
-    try:
-        return json.loads(payload)
-    except (json.JSONDecodeError, TypeError):
-        return fallback
+    def __getattr__(self, name: str) -> Callable[[str], str]:
+        """Generates a text wrapping function for valid color names."""
+        color_code = self.COLORS.get(name.lower())
+        if not color_code:
+            raise AttributeError(f"Palette has no color named '{name}'")
 
-def recursive_map(func: Callable, target: Any) -> Any:
-    """Deep recursive traversal for arbitrary data manipulation."""
-    if isinstance(target, dict):
-        return {k: recursive_map(func, v) for k, v in target.items()}
-    if isinstance(target, list):
-        return [recursive_map(func, i) for i in target]
-    return func(target)
+        def colorize(text: str) -> str:
+            return f"{color_code}{text}{self.COLORS['reset']}"
+
+        return colorize
+
+
+palette: ColorPalette = ColorPalette()
+
+
+class DynamicPipe(Generic[T]):
+    """Monadic CLI text pipeline supporting chained transformations."""
+
+    def __init__(self, value: T) -> None:
+        """Initialize the pipeline with an arbitrary payload."""
+        self._value: T = value
+
+    def pipe(self, func: Callable[[T], Any]) -> "DynamicPipe[Any]":
+        """Apply transformation function to contained value."""
+        return DynamicPipe(func(self._value))
+
+    def unwrap(self) -> T:
+        """Extract final processed value from the pipe."""
+        return self._value
+
+
+def timed_spinner(label: str) -> Callable[[Callable[P, T]], Callable[P, T]]:
+    """Decorator adding dynamic stdout feedback ticks to wrapped execution."""
+
+    def decorator(func: Callable[P, T]) -> Callable[P, T]:
+        @wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            sys.stdout.write(f"{palette.cyan('[wait]')} {label}...")
+            sys.stdout.flush()
+            time.sleep(0.1)
+            result = func(*args, **kwargs)
+            sys.stdout.write(f"\r{palette.green('[ok]')}   {label}\n")
+            return result
+
+        return wrapper
+
+    return decorator
