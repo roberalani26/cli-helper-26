@@ -1,34 +1,37 @@
+import functools
 import os
-import json
-import logging
-from pathlib import Path
+import threading
 
-class ConfigLoader:
-    def __init__(self, path: str = 'settings.json'):
-        self.path = Path(path)
-        self.data = {}
+class ConfigRegistry:
+    _storage = {}
+    _lock = threading.Lock()
 
-    def load(self):
-        try:
-            if not self.path.exists():
-                raise FileNotFoundError(f"Config missing: {self.path}")
-            
-            with open(self.path, 'r') as f:
-                self.data = json.load(f)
-                
-        except (json.JSONDecodeError, PermissionError, FileNotFoundError) as e:
-            self._handle_error(e)
-        return self.data
+    def __init__(self):
+        self._cache = {}
 
-    def _handle_error(self, err):
-        fallback = {'theme': 'dark', 'retries': 3}
-        logging.error(f"Configuration failure: {err}. Using default state.")
-        self.data = fallback
+    @classmethod
+    @functools.lru_cache(maxsize=128)
+    def fetch_env(cls, key: str, default: str = None):
+        with cls._lock:
+            return os.environ.get(key, default)
 
-    def get(self, key, default=None):
-        return self.data.get(key, default)
+    def get_optimized(self, key: str):
+        if key not in self._cache:
+            val = self.fetch_env(key)
+            self._cache[key] = val
+        return self._cache[key]
 
-    def validate_env(self):
-        if 'API_KEY' not in os.environ:
-            raise EnvironmentError("Critical: API_KEY missing from system env")
-        return True
+    def batch_load(self, keys: list):
+        return {k: self.get_optimized(k) for k in keys}
+
+    def __getitem__(self, item):
+        return self.get_optimized(item)
+
+    def __repr__(self):
+        return f"<ConfigRegistry: {len(self._cache)} items cached>"
+
+config_instance = ConfigRegistry()
+
+def get_config(key, default=None):
+    val = config_instance.get_optimized(key)
+    return val if val is not None else default
