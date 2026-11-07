@@ -1,28 +1,29 @@
-import sys
-from datetime import datetime
+import logging
+from logging.handlers import RotatingFileHandler
+import os
 
-class Colorizer:
-    COLORS = {'info': '\033[94m', 'warn': '\033[93m', 'error': '\033[91m', 'reset': '\033[0m'}
+def get_logger(name='cli-helper-26', path='app.log'):
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    
+    if not logger.handlers:
+        formatter = logging.Formatter(
+            '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        
+        file_handler = RotatingFileHandler(
+            path, 
+            maxBytes=1024 * 1024 * 5, 
+            backupCount=3
+        )
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+        
+    return logger
 
-    @classmethod
-    def paint(cls, level, message):
-        return f"{cls.COLORS.get(level, '')}[{datetime.now().strftime('%H:%M:%S')}] {level.upper()}: {message}{cls.COLORS['reset']}"
-
-class Logger:
-    def __init__(self, output=sys.stdout):
-        self.output = output
-
-    def _log(self, level, msg):
-        print(Colorizer.paint(level, msg), file=self.output)
-
-    def info(self, msg): self._log('info', msg)
-    def warn(self, msg): self._log('warn', msg)
-    def error(self, msg): self._log('error', msg)
-
-    def context(self, label):
-        class ContextLogger:
-            def __init__(self, parent, lbl): self.p, self.l = parent, lbl
-            def info(self, m): self.p.info(f"[{self.l}] {m}")
-            def warn(self, m): self.p.warn(f"[{self.l}] {m}")
-            def error(self, m): self.p.error(f"[{self.l}] {m}")
-        return ContextLogger(self, label)
+log = get_logger()
