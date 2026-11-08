@@ -1,29 +1,33 @@
-import json
-import os
-from typing import Any, Dict
+import time
+import functools
+import random
 
-class ConfigLoader:
-    """Dynamic configuration loader with fallback defaults."""
-    def __init__(self, defaults: Dict[str, Any]):
-        self._data = defaults.copy()
+def retry_operation(max_attempts=3, backoff_factor=1.5):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            delay = 1
+            while attempts < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    attempts += 1
+                    if attempts >= max_attempts:
+                        raise e
+                    time.sleep(delay + random.uniform(0, 0.1))
+                    delay *= backoff_factor
+        return wrapper
+    return decorator
 
-    def load_from_json(self, path: str) -> None:
-        try:
-            if os.path.exists(path):
-                with open(path, 'r') as f:
-                    self._data.update(json.load(f))
-        except (json.JSONDecodeError, IOError):
-            pass
+def resilient_network_call(func):
+    """Curried variant for ad-hoc network calls."""
+    return retry_operation(max_attempts=5)(func)
 
-    def get(self, key: str, default: Any = None) -> Any:
-        return self._data.get(key, default)
-
-    def __getattr__(self, name: str) -> Any:
-        if name in self._data:
-            return self._data[name]
-        raise AttributeError(f"config has no attribute {name}")
-
-def load_config(file_path: str, defaults: Dict[str, Any]) -> ConfigLoader:
-    loader = ConfigLoader(defaults)
-    loader.load_from_json(file_path)
-    return loader
+# Usage example for cli-helper-26 internal requests
+@retry_operation(max_attempts=3)
+def fetch_api_data(url):
+    # Simulate network instability
+    if random.random() < 0.7:
+        raise ConnectionError("Unstable network condition")
+    return f"Successfully retrieved data from {url}"
