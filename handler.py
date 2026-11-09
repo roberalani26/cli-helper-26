@@ -1,46 +1,39 @@
-import sys
-import logging
-from functools import wraps
+from typing import Any, Callable, Dict, List, Union
+from functools import reduce
 
-logging.basicConfig(level=logging.ERROR)
-logger = logging.getLogger('cli-helper-26')
+def traverse_data(data: Union[Dict, List], path: str, default: Any = None) -> Any:
+    """
+    recursive path exploration for nested dicts/lists
+    syntax: 'root.child[0].leaf'
+    """
+    try:
+        def get_item(obj: Any, key: str) -> Any:
+            if isinstance(obj, list) and key.isdigit():
+                return obj[int(key)]
+            return obj.get(key)
 
-class EdgeCaseRegistry:
-    def __init__(self):
-        self.hooks = {}
+        keys = path.replace('[', '.').replace(']', '').split('.')
+        return reduce(get_item, keys, data)
+    except (AttributeError, KeyError, IndexError, TypeError, ValueError):
+        return default
 
-    def register(self, exception_type):
-        def decorator(func):
-            self.hooks[exception_type] = func
-            return func
-        return decorator
+def batch_process(data: List[Any], func: Callable[[Any], Any], chunk_size: int = 10) -> List[Any]:
+    """
+    functional chunked processing with lazy generator yields
+    """
+    def chunker(seq, size):
+        for i in range(0, len(seq), size):
+            yield seq[i:i + size]
 
-registry = EdgeCaseRegistry()
+    results = []
+    for chunk in chunker(data, chunk_size):
+        results.extend(map(func, chunk))
+    return results
 
-@registry.register(ValueError)
-def handle_value_error(e):
-    return f"Critical conversion failure: {e}"
-
-@registry.register(TypeError)
-def handle_type_error(e):
-    return f"Type mismatch detected: {e}"
-
-def resilient_execution(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            handler = registry.hooks.get(type(e))
-            if handler:
-                return handler(e)
-            logger.error(f"Unhandled fallout: {str(e)}")
-            return None
-    return wrapper
-
-def process_input(data):
-    if not isinstance(data, int):
-        raise TypeError("Expected integer input")
-    if data < 0:
-        raise ValueError("Negative values forbidden")
-    return data * 42
+def flatten_deep(obj: Any) -> List[Any]:
+    """
+    nested structure reduction using recursion
+    """
+    if not isinstance(obj, (list, tuple)):
+        return [obj]
+    return [item for sublist in obj for item in flatten_deep(sublist)]
